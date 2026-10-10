@@ -1,0 +1,19 @@
+# Copy to ovpncert.yaml and adjust. ~ is expanded to your home directory.
+
+provider: aws                   # the only supported provider (default)
+
+easyrsa:
+  path: ~/easy-rsa/easyrsa3     # directory that contains the easyrsa script
+  pki_dir: ~/easy-rsa/easyrsa3/pki
+
+certs:
+  output_dir: ~/certs           # per-user folders and the state file live here
+
+aws:
+  region: eu-central-1
+  profile: default              # optional; omit to use the default credential chain
+  vpn_endpoint_id: cvpn-endpoint-0123456789abcdef0
+
+ovpn:
+  template: ~/vpn/base.ovpn     # start from base.ovpn.example
+  output_dir: ~/vpn/clients     # one <user>.ovpn per user
