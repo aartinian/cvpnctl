@@ -30,3 +30,14 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Local config and state (real paths, endpoint IDs, and cert metadata)
+ovpncert.yaml
+.ovpncert-state.json
+
+# Local build output
+/ovpncert
+
+# macOS
+.DS_Store
+
