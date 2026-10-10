@@ -1,5 +1,5 @@
 {{- /*
-  Base client config for ovpncert. This comment is a template comment and is
+  Base client config for cvpnctl. This comment is a template comment and is
   stripped from the generated files.
 
   Easiest way to get a correct base: download the client configuration for

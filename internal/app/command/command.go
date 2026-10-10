@@ -1,4 +1,4 @@
-// Package command implements the ovpncert subcommands.
+// Package command implements the cvpnctl subcommands.
 //
 // Every lifecycle command follows the same rule: everything that can be
 // checked up front (username, config, PKI, credentials) is checked before the
@@ -13,12 +13,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aartinian/ovpncert/internal/config"
-	"github.com/aartinian/ovpncert/internal/easyrsa"
-	"github.com/aartinian/ovpncert/internal/ovpn"
-	"github.com/aartinian/ovpncert/internal/provider"
-	"github.com/aartinian/ovpncert/internal/state"
-	"github.com/aartinian/ovpncert/internal/ui"
+	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/easyrsa"
+	"github.com/aartinian/cvpnctl/internal/ovpn"
+	"github.com/aartinian/cvpnctl/internal/provider"
+	"github.com/aartinian/cvpnctl/internal/state"
+	"github.com/aartinian/cvpnctl/internal/ui"
 )
 
 // Options is shared by all subcommands. NewProvider is a field rather than a

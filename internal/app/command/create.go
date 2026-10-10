@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aartinian/ovpncert/internal/ui"
+	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -34,10 +34,10 @@ func runCreate(ctx context.Context, opts *Options, user string) error {
 	}
 
 	if _, ok := e.users.Get(user); ok {
-		return fmt.Errorf("user %q already exists; use 'ovpncert renew' to reissue their certificate", user)
+		return fmt.Errorf("user %q already exists; use 'cvpnctl renew' to reissue their certificate", user)
 	}
 	if e.pki.HasCert(user) {
-		return fmt.Errorf("the PKI already has a certificate for %q that ovpncert does not track; revoke it with easyrsa or choose another username", user)
+		return fmt.Errorf("the PKI already has a certificate for %q that cvpnctl does not track; revoke it with easyrsa or choose another username", user)
 	}
 
 	ui.Step("Creating VPN certificate for %q", user)

@@ -8,9 +8,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/aartinian/ovpncert/internal/config"
-	"github.com/aartinian/ovpncert/internal/easyrsa"
-	"github.com/aartinian/ovpncert/internal/state"
+	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/easyrsa"
+	"github.com/aartinian/cvpnctl/internal/state"
 	"github.com/spf13/cobra"
 )
 

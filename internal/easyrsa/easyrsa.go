@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/aartinian/ovpncert/internal/config"
-	"github.com/aartinian/ovpncert/internal/fsutil"
+	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/fsutil"
 )
 
 // Files locates a client certificate, its private key, and the issuing CA.

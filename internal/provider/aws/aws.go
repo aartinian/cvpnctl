@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/aartinian/ovpncert/internal/config"
+	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/acm"

@@ -1,4 +1,4 @@
-# Copy to ovpncert.yaml and adjust. ~ is expanded to your home directory.
+# Copy to cvpnctl.yaml and adjust. ~ is expanded to your home directory.
 
 provider: aws                   # the only supported provider (default)
 

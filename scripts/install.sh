@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Installs an ovpncert release from GitHub and verifies its checksum.
+# Installs an cvpnctl release from GitHub and verifies its checksum.
 #
-#   curl -fsSL https://raw.githubusercontent.com/aartinian/ovpncert/master/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/aartinian/cvpnctl/master/scripts/install.sh | bash
 #
 # Environment:
 #   VERSION      release tag to install, e.g. v1.0.0 (default: latest)
 #   INSTALL_DIR  where to put the binary (default: /usr/local/bin)
 set -euo pipefail
 
-REPO="aartinian/ovpncert"
-BINARY="ovpncert"
+REPO="aartinian/cvpnctl"
+BINARY="cvpnctl"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

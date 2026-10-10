@@ -49,4 +49,4 @@ jobs:
         with:
           version: v2.14.0
 
-      - run: go build ./cmd/ovpncert
+      - run: go build ./cmd/cvpnctl

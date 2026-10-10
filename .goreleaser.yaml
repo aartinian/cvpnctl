@@ -1,9 +1,9 @@
 version: 2
 
 builds:
-  - id: ovpncert
-    main: ./cmd/ovpncert
-    binary: ovpncert
+  - id: cvpnctl
+    main: ./cmd/cvpnctl
+    binary: cvpnctl
     env:
       - CGO_ENABLED=0
     # easyrsa is a POSIX shell script, so Windows is not supported.
@@ -14,7 +14,7 @@ builds:
       - -s -w -X main.version=v{{ .Version }}
 
 archives:
-  - ids: [ovpncert]
+  - ids: [cvpnctl]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
 

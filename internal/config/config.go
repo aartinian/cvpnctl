@@ -1,4 +1,4 @@
-// Package config loads and validates the ovpncert.yaml configuration file.
+// Package config loads and validates the cvpnctl.yaml configuration file.
 package config
 
 import (
@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config holds the full tool configuration loaded from ovpncert.yaml.
+// Config holds the full tool configuration loaded from cvpnctl.yaml.
 type Config struct {
 	Provider string        `mapstructure:"provider"` // "aws" (the default and only option)
 	EasyRSA  EasyRSAConfig `mapstructure:"easyrsa"`
@@ -81,18 +81,18 @@ func Load(path string) (*Config, error) {
 
 // SearchPaths lists, in order, where FindConfig looks for the config file.
 func SearchPaths() []string {
-	paths := []string{"ovpncert.yaml"}
+	paths := []string{"cvpnctl.yaml"}
 	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".config", "ovpncert", "ovpncert.yaml"))
+		paths = append(paths, filepath.Join(home, ".config", "cvpnctl", "cvpnctl.yaml"))
 	}
-	return append(paths, "/etc/ovpncert/ovpncert.yaml")
+	return append(paths, "/etc/cvpnctl/cvpnctl.yaml")
 }
 
 // FindConfig returns the first existing file from SearchPaths.
 //
 // It matches exact file names rather than using Viper's search, which also
-// accepts a file named just "ovpncert" once a config type is set, and so
-// would try to parse the ovpncert binary itself when run from its directory.
+// accepts a file named just "cvpnctl" once a config type is set, and so
+// would try to parse the cvpnctl binary itself when run from its directory.
 func FindConfig() (string, error) {
 	paths := SearchPaths()
 	for _, p := range paths {

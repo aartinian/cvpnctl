@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/aartinian/ovpncert/internal/easyrsa"
-	"github.com/aartinian/ovpncert/internal/ui"
+	"github.com/aartinian/cvpnctl/internal/easyrsa"
+	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
