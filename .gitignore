@@ -28,15 +28,15 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
 
 # Local config and state (real paths, endpoint IDs, and cert metadata)
-ovpncert.yaml
-.ovpncert-state.json
+cvpnctl.yaml
+.cvpnctl-state.json
 
 # Local build output
-/ovpncert
+/cvpnctl
 
 # macOS
 .DS_Store

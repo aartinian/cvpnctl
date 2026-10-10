@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aartinian/ovpncert/internal/fsutil"
+	"github.com/aartinian/cvpnctl/internal/fsutil"
 )
 
 // Filename is the name of the state file inside certs.output_dir.
-const Filename = ".ovpncert-state.json"
+const Filename = ".cvpnctl-state.json"
 
 // UserRecord holds the provider certificate ID and timestamps for a managed user.
 type UserRecord struct {

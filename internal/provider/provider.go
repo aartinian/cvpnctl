@@ -7,8 +7,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aartinian/ovpncert/internal/config"
-	"github.com/aartinian/ovpncert/internal/provider/aws"
+	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/provider/aws"
 )
 
 // CertStore manages certificates in a cloud provider.

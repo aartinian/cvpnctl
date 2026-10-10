@@ -3,7 +3,7 @@ package command
 import (
 	"context"
 
-	"github.com/aartinian/ovpncert/internal/ui"
+	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 

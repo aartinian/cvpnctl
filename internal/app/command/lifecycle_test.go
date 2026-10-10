@@ -2,7 +2,7 @@ package command
 
 // These tests run the real commands against a throwaway EasyRSA PKI, with a
 // fake in place of the cloud provider. They are skipped when EasyRSA is not
-// installed; set OVPNCERT_TEST_EASYRSA to the directory containing the
+// installed; set CVPNCTL_TEST_EASYRSA to the directory containing the
 // easyrsa script to point them at a specific copy.
 
 import (
@@ -17,9 +17,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aartinian/ovpncert/internal/config"
-	"github.com/aartinian/ovpncert/internal/provider"
-	"github.com/aartinian/ovpncert/internal/state"
+	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/provider"
+	"github.com/aartinian/cvpnctl/internal/state"
 )
 
 // fakeCloud records what the commands send to the provider.
@@ -117,7 +117,7 @@ ovpn:
   template: %s
   output_dir: %s
 `, ersDir, h.pki, h.certsDir(), tmpl, h.clientsDir())
-	cfgPath := filepath.Join(dir, "ovpncert.yaml")
+	cfgPath := filepath.Join(dir, "cvpnctl.yaml")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ ovpn:
 
 func findEasyRSA(t *testing.T) string {
 	t.Helper()
-	candidates := []string{os.Getenv("OVPNCERT_TEST_EASYRSA"), "/usr/share/easy-rsa"}
+	candidates := []string{os.Getenv("CVPNCTL_TEST_EASYRSA"), "/usr/share/easy-rsa"}
 	if p, err := exec.LookPath("easyrsa"); err == nil {
 		if real, err := filepath.EvalSymlinks(p); err == nil {
 			candidates = append(candidates, filepath.Dir(real))
@@ -148,7 +148,7 @@ func findEasyRSA(t *testing.T) string {
 			return dir
 		}
 	}
-	t.Skip("easyrsa not found; set OVPNCERT_TEST_EASYRSA to the directory containing it")
+	t.Skip("easyrsa not found; set CVPNCTL_TEST_EASYRSA to the directory containing it")
 	return ""
 }
 

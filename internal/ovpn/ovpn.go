@@ -12,9 +12,9 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/aartinian/ovpncert/internal/config"
-	"github.com/aartinian/ovpncert/internal/easyrsa"
-	"github.com/aartinian/ovpncert/internal/fsutil"
+	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/easyrsa"
+	"github.com/aartinian/cvpnctl/internal/fsutil"
 )
 
 // Data is what a template can reference. CA, Cert, and Key are complete

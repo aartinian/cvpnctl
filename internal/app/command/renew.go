@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aartinian/ovpncert/internal/ui"
+	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +42,7 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 
 	record, ok := e.users.Get(user)
 	if !ok {
-		return fmt.Errorf("user %q not found; use 'ovpncert create' first", user)
+		return fmt.Errorf("user %q not found; use 'cvpnctl create' first", user)
 	}
 	oldID := record.ProviderID
 
@@ -59,7 +59,7 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 
 	if err := e.pushCRL(ctx); err != nil {
 		return fmt.Errorf("%w\nthe new certificate is in place, but the VPN endpoint still accepts the old one: "+
-			"run 'ovpncert push-crl', then delete %s from the provider", err, oldID)
+			"run 'cvpnctl push-crl', then delete %s from the provider", err, oldID)
 	}
 
 	if oldID != "" {

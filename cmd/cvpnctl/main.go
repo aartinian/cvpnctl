@@ -1,4 +1,4 @@
-// Command ovpncert manages OpenVPN client certificates. See internal/app.
+// Command cvpnctl manages OpenVPN client certificates. See internal/app.
 package main
 
 import (
@@ -9,7 +9,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
-	"github.com/aartinian/ovpncert/internal/app"
+	"github.com/aartinian/cvpnctl/internal/app"
 )
 
 // version is set by release builds: -ldflags "-X main.version=v1.2.3".

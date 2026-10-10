@@ -4,8 +4,8 @@ package app
 import (
 	"context"
 
-	"github.com/aartinian/ovpncert/internal/app/command"
-	"github.com/aartinian/ovpncert/internal/provider"
+	"github.com/aartinian/cvpnctl/internal/app/command"
+	"github.com/aartinian/cvpnctl/internal/provider"
 	"github.com/spf13/cobra"
 )
 
@@ -14,9 +14,9 @@ func Run(ctx context.Context, version string, args []string) error {
 	opts := &command.Options{NewProvider: provider.New}
 
 	root := &cobra.Command{
-		Use:   "ovpncert",
+		Use:   "cvpnctl",
 		Short: "Manage OpenVPN client certificates with EasyRSA and AWS Client VPN",
-		Long: `ovpncert automates the lifecycle of OpenVPN client certificates:
+		Long: `cvpnctl automates the lifecycle of OpenVPN client certificates:
 
   - issue and revoke certificates with EasyRSA
   - import them to AWS Certificate Manager and push the CRL to AWS Client VPN
@@ -25,8 +25,8 @@ func Run(ctx context.Context, version string, args []string) error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.SetVersionTemplate("ovpncert {{.Version}}\n")
-	root.PersistentFlags().StringVarP(&opts.ConfigFile, "config", "c", "", "config file (default: search ./, ~/.config/ovpncert/, /etc/ovpncert/)")
+	root.SetVersionTemplate("cvpnctl {{.Version}}\n")
+	root.PersistentFlags().StringVarP(&opts.ConfigFile, "config", "c", "", "config file (default: search ./, ~/.config/cvpnctl/, /etc/cvpnctl/)")
 
 	root.AddCommand(
 		command.NewCreateCmd(opts),

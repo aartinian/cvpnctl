@@ -50,7 +50,7 @@ func fixture(t *testing.T) (dir string, write func(body string) string) {
 		}
 	}
 	return dir, func(body string) string {
-		p := filepath.Join(dir, "ovpncert.yaml")
+		p := filepath.Join(dir, "cvpnctl.yaml")
 		body = strings.ReplaceAll(body, "$DIR", dir)
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -128,15 +128,15 @@ func TestLoadSearchesForConfig(t *testing.T) {
 	t.Chdir(dir)
 
 	if _, err := Load(""); err != nil {
-		t.Fatalf("Load without a path did not find ./ovpncert.yaml: %v", err)
+		t.Fatalf("Load without a path did not find ./cvpnctl.yaml: %v", err)
 	}
 }
 
-func TestLoadIgnoresBinaryNamedOvpncert(t *testing.T) {
-	// Running from the directory that holds the ovpncert binary must not
+func TestLoadIgnoresBinaryNamedCvpnctl(t *testing.T) {
+	// Running from the directory that holds the cvpnctl binary must not
 	// make it try to parse the binary as its config.
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "ovpncert"), []byte("\xcf\xfa\xed\xfe binary"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "cvpnctl"), []byte("\xcf\xfa\xed\xfe binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", t.TempDir())

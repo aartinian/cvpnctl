@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aartinian/ovpncert/internal/config"
-	"github.com/aartinian/ovpncert/internal/easyrsa"
+	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/easyrsa"
 )
 
 const (
