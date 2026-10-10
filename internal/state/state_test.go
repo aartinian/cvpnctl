@@ -1,0 +1,81 @@
+package state
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load empty store: %v", err)
+	}
+	s.Set("carol", "arn:3")
+	s.Set("alice", "arn:1")
+	s.Set("bob", "arn:2")
+	if err := s.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	s2, err := Load(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	r, ok := s2.Get("alice")
+	if !ok || r.ProviderID != "arn:1" {
+		t.Fatalf("Get(alice) = %+v, %v", r, ok)
+	}
+
+	var names []string
+	for _, r := range s2.All() {
+		names = append(names, r.User)
+	}
+	if got := filepath.Join(names...); got != filepath.Join("alice", "bob", "carol") {
+		t.Errorf("All() not sorted by user: %v", names)
+	}
+
+	fi, err := os.Stat(filepath.Join(dir, Filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("state file mode = %o, want 600", fi.Mode().Perm())
+	}
+}
+
+func TestSetKeepsCreatedAt(t *testing.T) {
+	s, _ := Load(t.TempDir())
+	s.Set("alice", "arn:1")
+	created := s.records["alice"].CreatedAt
+	s.Set("alice", "arn:2")
+	r, _ := s.Get("alice")
+	if !r.CreatedAt.Equal(created) || r.ProviderID != "arn:2" {
+		t.Errorf("upsert changed CreatedAt or dropped ProviderID: %+v", r)
+	}
+}
+
+func TestDelete(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	s.Set("bob", "arn:2")
+	s.Delete("bob")
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s2, _ := Load(dir)
+	if _, ok := s2.Get("bob"); ok {
+		t.Error("bob still present after delete")
+	}
+}
+
+func TestSaveCreatesDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "not", "yet")
+	s, _ := Load(dir)
+	s.Set("alice", "arn:1")
+	if err := s.Save(); err != nil {
+		t.Fatalf("save into missing directory: %v", err)
+	}
+}
