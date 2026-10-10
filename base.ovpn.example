@@ -1,0 +1,24 @@
+{{- /*
+  Base client config for ovpncert. This comment is a template comment and is
+  stripped from the generated files.
+
+  Easiest way to get a correct base: download the client configuration for
+  your endpoint from the AWS console (VPC → Client VPN endpoints → Download
+  client configuration), delete its <ca>...</ca> block, and add the three
+  placeholders below at the end. Available fields: .User .CA .Cert .Key
+*/ -}}
+client
+dev tun
+proto udp
+remote cvpn-endpoint-0123456789abcdef0.prod.clientvpn.eu-central-1.amazonaws.com 443
+remote-random-hostname
+resolv-retry infinite
+nobind
+remote-cert-tls server
+cipher AES-256-GCM
+verb 3
+reneg-sec 0
+
+{{.CA}}
+{{.Cert}}
+{{.Key}}
