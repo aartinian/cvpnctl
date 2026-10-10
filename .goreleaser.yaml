@@ -1,0 +1,31 @@
+version: 2
+
+builds:
+  - id: ovpncert
+    main: ./cmd/ovpncert
+    binary: ovpncert
+    env:
+      - CGO_ENABLED=0
+    # easyrsa is a POSIX shell script, so Windows is not supported.
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version=v{{ .Version }}
+
+archives:
+  - ids: [ovpncert]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"

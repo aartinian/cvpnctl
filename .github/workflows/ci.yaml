@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The minimum version go.mod promises, so it can't silently fail...
+          - name: go.mod minimum
+            go-version-file: go.mod
+          # ...and the version releases are built with.
+          - name: latest stable
+            go-version: stable
+            lint: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ matrix.go-version-file }}
+          go-version: ${{ matrix.go-version }}
+
+      # The lifecycle tests run the real commands against a throwaway PKI and
+      # are skipped when EasyRSA is missing. Ubuntu installs it to
+      # /usr/share/easy-rsa, where the tests look for it.
+      - name: Install EasyRSA
+        run: sudo apt-get update -q && sudo apt-get install -y -q easy-rsa
+
+      - name: Check go.mod is tidy
+        run: go mod tidy -diff
+
+      - run: go vet ./...
+
+      - run: go test -race ./...
+
+      - if: matrix.lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+
+      - run: go build ./cmd/ovpncert
