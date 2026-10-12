@@ -1,9 +1,9 @@
 package command
 
 // These tests run the real commands against a throwaway EasyRSA PKI, with a
-// fake in place of the cloud provider. They are skipped when EasyRSA is not
-// installed; set CVPNCTL_TEST_EASYRSA to the directory containing the
-// easyrsa script to point them at a specific copy.
+// fake in place of the cloud provider. They need EasyRSA 3.2.7 or later and
+// are skipped when it is not installed; set CVPNCTL_TEST_EASYRSA to the
+// directory containing the easyrsa script to point them at a specific copy.
 
 import (
 	"context"
@@ -134,7 +134,7 @@ ovpn:
 
 func findEasyRSA(t *testing.T) string {
 	t.Helper()
-	candidates := []string{os.Getenv("CVPNCTL_TEST_EASYRSA"), "/usr/share/easy-rsa"}
+	candidates := []string{os.Getenv("CVPNCTL_TEST_EASYRSA")}
 	if p, err := exec.LookPath("easyrsa"); err == nil {
 		if real, err := filepath.EvalSymlinks(p); err == nil {
 			candidates = append(candidates, filepath.Dir(real))
@@ -288,7 +288,8 @@ func TestCreateRollsBackWhenImportFails(t *testing.T) {
 	if err := h.create("bob"); err == nil {
 		t.Fatal("create succeeded despite import failure")
 	}
-	for _, p := range []string{"reqs/bob.req", "issued/bob.crt", "private/bob.key"} {
+	// EasyRSA also writes an inline bundle containing the private key.
+	for _, p := range []string{"reqs/bob.req", "issued/bob.crt", "private/bob.key", "inline/private/bob.inline"} {
 		if h.exists(filepath.Join(h.pki, p)) {
 			t.Errorf("failed create left %s in the PKI", p)
 		}

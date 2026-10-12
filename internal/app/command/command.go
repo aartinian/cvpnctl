@@ -42,6 +42,10 @@ func (o *Options) load(ctx context.Context) (*env, error) {
 	if err != nil {
 		return nil, err
 	}
+	pki := easyrsa.New(&cfg.EasyRSA)
+	if err := pki.CheckVersion(); err != nil {
+		return nil, err
+	}
 	users, err := state.Load(cfg.Certs.OutputDir)
 	if err != nil {
 		return nil, err
@@ -53,7 +57,7 @@ func (o *Options) load(ctx context.Context) (*env, error) {
 	return &env{
 		cfg:   cfg,
 		users: users,
-		pki:   easyrsa.New(&cfg.EasyRSA),
+		pki:   pki,
 		cloud: cloud,
 		ovpn:  ovpn.New(&cfg.OVPN),
 	}, nil
