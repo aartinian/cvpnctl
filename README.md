@@ -24,8 +24,14 @@ anything fails halfway.
 
 ## Requirements
 
-- [EasyRSA](https://github.com/OpenVPN/easy-rsa) 3.0.6 or later, with an
-  initialised PKI (the CA that your Client VPN endpoint trusts)
+- [EasyRSA](https://github.com/OpenVPN/easy-rsa) **3.2.7 or later**, installed
+  from a [release](https://github.com/OpenVPN/easy-rsa/releases) or Homebrew
+  (most distro packages are older). `cvpnctl` checks the version and refuses
+  anything older.
+- An initialised EasyRSA PKI: the CA that your Client VPN endpoint trusts. If
+  you create the endpoint's server certificate with EasyRSA, add
+  `--san=DNS:server`: Client VPN requires a domain name on it, and EasyRSA no
+  longer adds one by default.
 - An AWS Client VPN endpoint using mutual (certificate) authentication
 - AWS credentials with `acm:ImportCertificate`, `acm:DeleteCertificate`, and
   `ec2:ImportClientVpnClientCertificateRevocationList`
@@ -53,8 +59,8 @@ cp base.ovpn.example ~/vpn/base.ovpn
 
 ```yaml
 easyrsa:
-  path: ~/easy-rsa/easyrsa3          # directory containing the easyrsa script
-  pki_dir: ~/easy-rsa/easyrsa3/pki
+  path: ~/easy-rsa                   # directory containing the easyrsa script
+  pki_dir: ~/vpn-pki                 # your PKI
 certs:
   output_dir: ~/certs                # per-user folders + state file
 aws:
@@ -65,6 +71,10 @@ ovpn:
   template: ~/vpn/base.ovpn
   output_dir: ~/vpn/clients
 ```
+
+Keep the PKI in its own directory, not inside the EasyRSA folder or a git
+clone of it. It holds your CA key, and upgrading or cleaning up EasyRSA should
+never put that at risk.
 
 The config is read from `--config`, else `./cvpnctl.yaml`,
 `~/.config/cvpnctl/cvpnctl.yaml`, or `/etc/cvpnctl/cvpnctl.yaml`.
