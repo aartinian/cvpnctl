@@ -8,6 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/fsutil"
@@ -30,6 +33,38 @@ func New(cfg *config.EasyRSAConfig) *Client {
 	return &Client{cfg: cfg}
 }
 
+// MinVersion is the oldest EasyRSA release cvpnctl supports.
+var MinVersion = []int{3, 2, 7}
+
+var versionLine = regexp.MustCompile(`(?m)^Version:\s+(\d+)\.(\d+)\.(\d+)\s*$`)
+
+// CheckVersion fails unless the configured easyrsa script is a release of
+// MinVersion or newer. Git checkouts report "~VER~" rather than a version and
+// are rejected too.
+func (c *Client) CheckVersion() error {
+	out, err := exec.Command(c.script(), "--version").Output()
+	if err != nil {
+		return fmt.Errorf("easyrsa: run %s --version: %w", c.script(), err)
+	}
+	return checkVersionOutput(c.script(), string(out))
+}
+
+func checkVersionOutput(script, out string) error {
+	want := fmt.Sprintf("%d.%d.%d", MinVersion[0], MinVersion[1], MinVersion[2])
+	m := versionLine.FindStringSubmatch(out)
+	if m == nil {
+		return fmt.Errorf("easyrsa: can't tell the version of %s (a git checkout instead of a release?); cvpnctl needs an EasyRSA release, %s or later", script, want)
+	}
+	got := make([]int, 3)
+	for i := range got {
+		got[i], _ = strconv.Atoi(m[i+1]) // the regexp guarantees digits
+	}
+	if slices.Compare(got, MinVersion) < 0 {
+		return fmt.Errorf("easyrsa: %s is version %s.%s.%s; cvpnctl needs %s or later", script, m[1], m[2], m[3], want)
+	}
+	return nil
+}
+
 // Files returns where the PKI keeps user's certificate, key, and the CA.
 func (c *Client) Files(user string) Files {
 	return Files{
@@ -45,8 +80,8 @@ func (c *Client) CRLPath() string {
 }
 
 // HasCert reports whether the PKI holds an issued, unrevoked certificate for
-// user. EasyRSA moves revoked certificates out of pki/issued (since 3.0.6), so
-// a missing file means the name is free.
+// user. EasyRSA moves revoked certificates out of pki/issued, so a missing
+// file means the name is free.
 func (c *Client) HasCert(user string) bool {
 	_, err := os.Stat(c.Files(user).Cert)
 	return err == nil
@@ -81,8 +116,7 @@ func (c *Client) RemoveCertFiles(user string) error {
 		filepath.Join(c.cfg.PKIDir, "reqs", user+".req"),
 		f.Cert,
 		f.Key,
-		// EasyRSA 3.2+ also writes an "inline" bundle that contains the key.
-		filepath.Join(c.cfg.PKIDir, "inline", user+".inline"),
+		// The "inline" bundle EasyRSA writes on every build; it contains the key.
 		filepath.Join(c.cfg.PKIDir, "inline", "private", user+".inline"),
 	} {
 		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -132,11 +166,15 @@ func RemoveUserDir(outputDir, user string) error {
 	return nil
 }
 
+func (c *Client) script() string {
+	return filepath.Join(c.cfg.Path, "easyrsa")
+}
+
 // run executes the easyrsa script in batch mode against the configured PKI.
 // Stdin and the terminal are passed through so EasyRSA can prompt for the CA
 // key passphrase, if the CA has one.
 func (c *Client) run(args ...string) error {
-	cmd := exec.Command(filepath.Join(c.cfg.Path, "easyrsa"), append([]string{"--batch"}, args...)...)
+	cmd := exec.Command(c.script(), append([]string{"--batch"}, args...)...)
 	cmd.Dir = c.cfg.Path
 	cmd.Env = append(os.Environ(), "EASYRSA_PKI="+c.cfg.PKIDir)
 	cmd.Stdin = os.Stdin
