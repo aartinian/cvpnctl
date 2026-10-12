@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # cvpnctl requires EasyRSA 3.2.7 or later.
+  # note: tearball pinned with SHA256
+  EASYRSA_VERSION: "3.2.7"
+  EASYRSA_SHA256: 308743bc9fe871b902d47dbe98d749daff3a05b27531684f02625ce7208d4598
+
 jobs:
   test:
     name: test (${{ matrix.name }})
@@ -32,10 +38,16 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       # The lifecycle tests run the real commands against a throwaway PKI and
-      # are skipped when EasyRSA is missing. Ubuntu installs it to
-      # /usr/share/easy-rsa, where the tests look for it.
-      - name: Install EasyRSA
-        run: sudo apt-get update -q && sudo apt-get install -y -q easy-rsa
+      # are skipped when EasyRSA is missing. Distro packages are too old, so
+      # install the release.
+      - name: Install EasyRSA ${{ env.EASYRSA_VERSION }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/easyrsa.tgz" \
+            "https://github.com/OpenVPN/easy-rsa/releases/download/v${EASYRSA_VERSION}/EasyRSA-${EASYRSA_VERSION}.tgz"
+          echo "${EASYRSA_SHA256}  $RUNNER_TEMP/easyrsa.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/easyrsa"
+          tar -xzf "$RUNNER_TEMP/easyrsa.tgz" -C "$RUNNER_TEMP/easyrsa" --strip-components=1
+          echo "CVPNCTL_TEST_EASYRSA=$RUNNER_TEMP/easyrsa" >> "$GITHUB_ENV"
 
       - name: Check go.mod is tidy
         run: go mod tidy -diff
