@@ -7,7 +7,7 @@ easyrsa:
   pki_dir: ~/vpn-pki            # your PKI
 
 certs:
-  output_dir: ~/certs           # per-user folders and the state file live here
+  output_dir: ~/vpn/certs       # per-user folders and the state file live here
 
 aws:
   region: eu-central-1
