@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
@@ -25,6 +26,7 @@ import (
 // direct call so tests can substitute a fake certificate store.
 type Options struct {
 	ConfigFile  string
+	Verbose     bool // show EasyRSA's own output as it runs
 	NewProvider func(context.Context, *config.Config) (provider.CertStore, error)
 }
 
@@ -56,7 +58,7 @@ func (o *Options) load(ctx context.Context) (*env, error) {
 	if err != nil {
 		return nil, err
 	}
-	pki := easyrsa.New(&cfg.EasyRSA)
+	pki := easyrsa.New(&cfg.EasyRSA, o.Verbose)
 	if err := pki.CheckVersion(); err != nil {
 		return nil, err
 	}
@@ -80,8 +82,54 @@ func (o *Options) load(ctx context.Context) (*env, error) {
 // issued describes a freshly issued certificate.
 type issued struct {
 	providerID string
-	userDir    string
 	ovpnPath   string
+}
+
+// step runs fn and prints its outcome: "✓ done  detail" when it succeeds, or
+// "✗ doing" when it fails. The error itself is printed by main.
+func step(doing, done string, fn func() (detail string, err error)) error {
+	detail, err := fn()
+	if err != nil {
+		ui.Fail(doing)
+		return err
+	}
+	ui.OK(done, detail)
+	return nil
+}
+
+// passphraseHint says which step the CA passphrase prompt that follows
+// belongs to: each ✓ line only appears once its step is done, so the prompt
+// would otherwise come without context. Shown only when the CA key is
+// encrypted.
+func (e *env) passphraseHint(doing string, prompts int) {
+	if !e.pki.CAEncrypted() {
+		return
+	}
+	if prompts > 1 {
+		ui.Note("%s: CA passphrase needed (asked %d times)", doing, prompts)
+		return
+	}
+	ui.Note("%s: CA passphrase needed", doing)
+}
+
+// shortID shortens a provider ID such as an ACM ARN for display.
+func shortID(id string) string {
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		id = id[i+1:]
+	}
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return "…/" + id
+}
+
+// crlDetail describes the current CRL, e.g. "31 revoked, valid until 2027-04-12".
+func (e *env) crlDetail() string {
+	n, next, err := e.pki.CRLInfo()
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d revoked, valid until %s", n, next.Format(time.DateOnly))
 }
 
 // issue builds a certificate for user, copies it to the per-user directory,
@@ -96,60 +144,95 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		if err != nil && !recorded {
 			if rmErr := e.pki.RemoveCertFiles(user); rmErr != nil {
 				err = errors.Join(err, fmt.Errorf("cleaning up after failure: %w", rmErr))
+			} else {
+				ui.Note("removed the unfinished certificate from the PKI; the command can simply be run again")
 			}
 		}
 	}()
 
-	ui.Info("generating certificate via EasyRSA")
-	if err := e.pki.BuildCert(user); err != nil {
+	e.passphraseHint("issuing the certificate", 1)
+	if err := step("issuing the certificate", "certificate issued", func() (string, error) {
+		if err := e.pki.BuildCert(user); err != nil {
+			return "", err
+		}
+		exp, err := e.pki.Expiry(user)
+		if err != nil {
+			return "", nil // issued fine; the detail is only cosmetic
+		}
+		return "expires " + exp.Format(time.DateOnly), nil
+	}); err != nil {
 		return nil, err
 	}
 
-	ui.Info("copying certificate to per-user directory")
-	dir, err := e.pki.CopyToUserDir(user, e.cfg.Certs.OutputDir)
-	if err != nil {
+	if err := step("saving the files", "files saved", func() (string, error) {
+		dir, err := e.pki.CopyToUserDir(user, e.cfg.Certs.OutputDir)
+		return ui.Path(dir) + "/", err
+	}); err != nil {
 		return nil, err
 	}
 
-	ui.Info("importing certificate to cloud provider")
 	files := e.pki.Files(user)
-	id, err := e.cloud.ImportCert(ctx, files.Cert, files.Key, files.CA)
-	if err != nil {
+	var id string
+	if err := step("importing to ACM", "imported to ACM", func() (string, error) {
+		var err error
+		if id, err = e.cloud.ImportCert(ctx, files.Cert, files.Key, files.CA); err != nil {
+			return "", err
+		}
+		e.users.Set(user, id)
+		if err := e.users.Save(); err != nil {
+			return "", fmt.Errorf("%w (certificate %s was imported but not recorded; delete it from the provider by hand)", err, id)
+		}
+		recorded = true
+		return shortID(id), nil
+	}); err != nil {
 		return nil, err
 	}
 
-	e.users.Set(user, id)
-	if err := e.users.Save(); err != nil {
-		return nil, fmt.Errorf("%w (certificate %s was imported but not recorded; delete it from the provider by hand)", err, id)
-	}
-	recorded = true
-
-	ui.Info("writing .ovpn config file")
-	ovpnPath, err := e.ovpn.Generate(user, files)
-	if err != nil {
+	var ovpnPath string
+	if err := step("writing the .ovpn", ".ovpn written", func() (string, error) {
+		var err error
+		ovpnPath, err = e.ovpn.Generate(user, files)
+		return ui.Path(ovpnPath), err
+	}); err != nil {
 		return nil, err
 	}
 
-	return &issued{providerID: id, userDir: dir, ovpnPath: ovpnPath}, nil
+	return &issued{providerID: id, ovpnPath: ovpnPath}, nil
 }
 
-// revokeLocal revokes user's certificate in the PKI and regenerates the CRL.
-// If the PKI has no issued certificate for user, an earlier interrupted run
-// already revoked it, so only the CRL is regenerated.
-func (e *env) revokeLocal(user string) error {
+// revokeLocal revokes user's certificate in the PKI and regenerates the CRL,
+// printing done on success. If the PKI has no issued certificate for user, an
+// earlier interrupted run already revoked it, so only the CRL is regenerated.
+func (e *env) revokeLocal(user, done string) error {
 	if !e.pki.HasCert(user) {
 		ui.Warn("no issued certificate for %q in the PKI; assuming an earlier run already revoked it", user)
-		ui.Info("regenerating CRL")
-		return e.pki.GenCRL()
+		e.passphraseHint("regenerating the CRL", 1)
+		return step("regenerating the CRL", "CRL regenerated", func() (string, error) {
+			return "", e.pki.GenCRL()
+		})
 	}
-	ui.Info("revoking certificate in the PKI")
-	return e.pki.Revoke(user)
+	// Revoking asks twice: once to revoke, once to regenerate the CRL.
+	e.passphraseHint("revoking in the PKI", 2)
+	return step("revoking in the PKI", done, func() (string, error) {
+		return "in the PKI", e.pki.Revoke(user)
+	})
 }
 
 // pushCRL uploads the current CRL to the VPN endpoint.
 func (e *env) pushCRL(ctx context.Context) error {
-	ui.Info("importing CRL to VPN endpoint")
-	return e.cloud.ImportCRL(ctx, e.pki.CRLPath())
+	return step("pushing the CRL", "CRL pushed", func() (string, error) {
+		if err := e.cloud.ImportCRL(ctx, e.pki.CRLPath()); err != nil {
+			return "", err
+		}
+		return e.crlDetail(), nil
+	})
+}
+
+// deleteCert removes a certificate from the provider, printing done on success.
+func (e *env) deleteCert(ctx context.Context, id, doing, done string) error {
+	return step(doing, done, func() (string, error) {
+		return shortID(id), e.cloud.DeleteCert(ctx, id)
+	})
 }
 
 // confirm asks a yes/no question on the terminal. It refuses to guess when

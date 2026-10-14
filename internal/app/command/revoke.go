@@ -54,17 +54,16 @@ func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error 
 		}
 	}
 
-	ui.Step("Revoking VPN certificate for %q", user)
+	ui.Title("Revoking %s", user)
 
-	if err := e.revokeLocal(user); err != nil {
+	if err := e.revokeLocal(user, "certificate revoked"); err != nil {
 		return err
 	}
 	if err := e.pushCRL(ctx); err != nil {
 		return err
 	}
 	if record.ProviderID != "" {
-		ui.Info("deleting certificate from cloud provider")
-		if err := e.cloud.DeleteCert(ctx, record.ProviderID); err != nil {
+		if err := e.deleteCert(ctx, record.ProviderID, "deleting the ACM entry", "ACM entry deleted"); err != nil {
 			return err
 		}
 	}
@@ -77,14 +76,15 @@ func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error 
 		return err
 	}
 
-	ui.Info("removing per-user directory and .ovpn file")
-	if err := easyrsa.RemoveUserDir(e.cfg.Certs.OutputDir, user); err != nil {
-		return err
-	}
-	if err := e.ovpn.Remove(user); err != nil {
+	if err := step("removing the files", "files removed", func() (string, error) {
+		if err := easyrsa.RemoveUserDir(e.cfg.Certs.OutputDir, user); err != nil {
+			return "", err
+		}
+		return ui.Path(easyrsa.UserDir(e.cfg.Certs.OutputDir, user)) + "/, " + ui.Path(e.ovpn.Path(user)), e.ovpn.Remove(user)
+	}); err != nil {
 		return err
 	}
 
-	ui.Success("certificate for %q revoked and all files removed", user)
+	ui.Done("%s can no longer connect; an open session ends within about a minute.", user)
 	return nil
 }

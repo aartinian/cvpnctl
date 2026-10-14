@@ -27,6 +27,7 @@ func Run(ctx context.Context, version string, args []string) error {
 	}
 	root.SetVersionTemplate("cvpnctl {{.Version}}\n")
 	root.PersistentFlags().StringVarP(&opts.ConfigFile, "config", "c", "", "config file (default: search ./, ~/.config/cvpnctl/, /etc/cvpnctl/)")
+	root.PersistentFlags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show EasyRSA's output as it runs")
 
 	root.AddCommand(
 		command.NewCreateCmd(opts),

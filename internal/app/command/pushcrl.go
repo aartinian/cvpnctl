@@ -30,15 +30,17 @@ func runPushCRL(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	ui.Step("Pushing CRL to VPN endpoint")
-	ui.Info("regenerating CRL")
-	if err := e.pki.GenCRL(); err != nil {
+	ui.Title("Pushing the CRL")
+	e.passphraseHint("regenerating the CRL", 1)
+	if err := step("regenerating the CRL", "CRL regenerated", func() (string, error) {
+		return "", e.pki.GenCRL()
+	}); err != nil {
 		return err
 	}
 	if err := e.pushCRL(ctx); err != nil {
 		return err
 	}
 
-	ui.Success("CRL pushed")
+	ui.Done("The endpoint has the current CRL.")
 	return nil
 }
