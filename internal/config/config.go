@@ -18,6 +18,12 @@ type Config struct {
 	Certs    CertsConfig   `mapstructure:"certs"`
 	AWS      AWSConfig     `mapstructure:"aws"`
 	OVPN     OVPNConfig    `mapstructure:"ovpn"`
+
+	// Path is the absolute path of the file this config was loaded from.
+	Path string `mapstructure:"-"`
+	// Ignored lists config files that also exist further down the search
+	// order and were therefore not used.
+	Ignored []string `mapstructure:"-"`
 }
 
 // EasyRSAConfig points to the EasyRSA installation and its PKI directory.
@@ -45,37 +51,50 @@ type OVPNConfig struct {
 }
 
 // Load reads, expands, and validates the configuration file. Without an
-// explicit path it uses the first file found by FindConfig.
+// explicit path it uses the first file found by FindConfig. Errors name the
+// file by its absolute path, so it is clear which config was read.
 func Load(path string) (*Config, error) {
+	var ignored []string
 	if path == "" {
-		found, err := FindConfig()
+		found, others, err := FindConfig()
 		if err != nil {
 			return nil, err
 		}
-		path = found
+		path, ignored = found, others
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+
+	// Name the file in every error, and say when it shadows another one: a
+	// stray ./cvpnctl.yaml is exactly the case where that matters most.
+	where := path
+	if len(ignored) > 0 {
+		where += ", which takes precedence over " + strings.Join(ignored, ", ")
 	}
 
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetConfigType("yaml")
 	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("config: read %s: %w", path, err)
+		return nil, fmt.Errorf("config: read %s: %w", where, err)
 	}
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+		return nil, fmt.Errorf("config: parse %s: %w", where, err)
 	}
 	if cfg.Provider == "" {
 		cfg.Provider = "aws"
 	}
 
 	if err := expandPaths(&cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w (in %s)", err, where)
 	}
 	if err := validate(&cfg); err != nil {
-		return nil, fmt.Errorf("%w (in %s)", err, path)
+		return nil, fmt.Errorf("%w (in %s)", err, where)
 	}
+	cfg.Path, cfg.Ignored = path, ignored
 	return &cfg, nil
 }
 
@@ -88,19 +107,31 @@ func SearchPaths() []string {
 	return append(paths, "/etc/cvpnctl/cvpnctl.yaml")
 }
 
-// FindConfig returns the first existing file from SearchPaths.
+// FindConfig returns the first existing file from SearchPaths, as an absolute
+// path, plus any further existing files that it takes precedence over.
 //
 // It matches exact file names rather than using Viper's search, which also
 // accepts a file named just "cvpnctl" once a config type is set, and so
 // would try to parse the cvpnctl binary itself when run from its directory.
-func FindConfig() (string, error) {
+func FindConfig() (found string, ignored []string, err error) {
 	paths := SearchPaths()
 	for _, p := range paths {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-			return p, nil
+		if fi, err := os.Stat(p); err != nil || fi.IsDir() {
+			continue
+		}
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if found == "" {
+			found = p
+		} else {
+			ignored = append(ignored, p)
 		}
 	}
-	return "", fmt.Errorf("config: no config file found (looked for %s); use --config", strings.Join(paths, ", "))
+	if found == "" {
+		return "", nil, fmt.Errorf("config: no config file found (looked for %s); use --config", strings.Join(paths, ", "))
+	}
+	return found, ignored, nil
 }
 
 // ExpandPath resolves a leading ~ to the user's home directory and makes the

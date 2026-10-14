@@ -127,9 +127,85 @@ func TestLoadSearchesForConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(dir)
 
-	if _, err := Load(""); err != nil {
+	cfg, err := Load("")
+	if err != nil {
 		t.Fatalf("Load without a path did not find ./cvpnctl.yaml: %v", err)
 	}
+	if want := filepath.Join(dir, "cvpnctl.yaml"); !sameFile(t, cfg.Path, want) {
+		t.Errorf("Path = %q, want %q", cfg.Path, want)
+	}
+	if len(cfg.Ignored) != 0 {
+		t.Errorf("Ignored = %v, want none", cfg.Ignored)
+	}
+}
+
+// A ./cvpnctl.yaml takes precedence over ~/.config/cvpnctl/cvpnctl.yaml, and
+// Load reports the file it skipped so the commands can warn about it.
+func TestLoadReportsOverriddenConfig(t *testing.T) {
+	dir, write := fixture(t)
+	local := write(validConfig)
+	home := t.TempDir()
+	user := filepath.Join(home, ".config", "cvpnctl", "cvpnctl.yaml")
+	if err := os.MkdirAll(filepath.Dir(user), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(user, []byte("not: used\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Chdir(dir)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameFile(t, cfg.Path, local) {
+		t.Errorf("Path = %q, want %q", cfg.Path, local)
+	}
+	if len(cfg.Ignored) != 1 || !sameFile(t, cfg.Ignored[0], user) {
+		t.Errorf("Ignored = %v, want [%s]", cfg.Ignored, user)
+	}
+
+	// If the overriding file is broken, the error itself must point at the
+	// file that was skipped: no warning gets printed when loading fails.
+	write(strings.Replace(validConfig, "template: $DIR/base.ovpn", "template: /etc/vpn/base.ovpn", 1))
+	_, err = Load("")
+	if err == nil || !strings.Contains(err.Error(), "which takes precedence over "+cfg.Ignored[0]) {
+		t.Errorf("err = %v, want it to name the ignored %s", err, cfg.Ignored[0])
+	}
+}
+
+// Errors name the config file by its absolute path, even when it was given
+// relatively, so it is obvious which file needs fixing.
+func TestLoadErrorNamesAbsolutePath(t *testing.T) {
+	dir, write := fixture(t)
+	write(strings.Replace(validConfig, "template: $DIR/base.ovpn", "template: $DIR/nope.ovpn", 1))
+	t.Chdir(dir)
+
+	_, err := Load("cvpnctl.yaml")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if want := "(in " + filepath.Join(dir, "cvpnctl.yaml") + ")"; !strings.Contains(err.Error(), want) &&
+		!strings.Contains(err.Error(), "(in "+resolve(t, filepath.Join(dir, "cvpnctl.yaml"))+")") {
+		t.Errorf("err = %v, want it to contain %q", err, want)
+	}
+}
+
+// sameFile compares paths after resolving symlinks (macOS temp dirs live
+// under /var, which is a symlink to /private/var).
+func sameFile(t *testing.T, a, b string) bool {
+	t.Helper()
+	return resolve(t, a) == resolve(t, b)
+}
+
+func resolve(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatalf("resolve %s: %v", p, err)
+	}
+	return r
 }
 
 func TestLoadIgnoresBinaryNamedCvpnctl(t *testing.T) {
