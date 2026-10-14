@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/provider"
@@ -30,6 +31,34 @@ type fakeCloud struct {
 	nextID     int
 	failImport bool
 	failCRL    bool
+
+	// For status: the endpoint's certificates (ID → expiry) and the CRL it
+	// currently holds, as last pushed or as set by a test.
+	endpointCerts map[string]time.Time
+	crlPEM        []byte
+}
+
+const (
+	fakeServerID = "arn:fake:server"
+	fakeRootID   = "arn:fake:client-root"
+)
+
+func (f *fakeCloud) EndpointCerts(context.Context) (string, string, error) {
+	return fakeServerID, fakeRootID, nil
+}
+
+func (f *fakeCloud) CertInfo(_ context.Context, id string) (string, time.Time, bool, error) {
+	if exp, ok := f.endpointCerts[id]; ok {
+		return strings.TrimPrefix(id, "arn:fake:"), exp, true, nil
+	}
+	if _, ok := f.certs[id]; ok {
+		return id, time.Now().AddDate(2, 0, 0), true, nil
+	}
+	return "", time.Time{}, false, nil
+}
+
+func (f *fakeCloud) ExportCRL(context.Context) ([]byte, error) {
+	return f.crlPEM, nil
 }
 
 func (f *fakeCloud) ImportCert(_ context.Context, certFile, _, _ string) (string, error) {
@@ -67,6 +96,7 @@ func (f *fakeCloud) ImportCRL(_ context.Context, crlFile string) error {
 	if err != nil {
 		return err
 	}
+	f.crlPEM = data
 	f.revoked = make(map[string]bool)
 	for _, e := range crl.RevokedCertificateEntries {
 		f.revoked[e.SerialNumber.Text(16)] = true
@@ -122,7 +152,10 @@ ovpn:
 		t.Fatal(err)
 	}
 
-	h.cloud = &fakeCloud{certs: map[string]string{}, revoked: map[string]bool{}}
+	h.cloud = &fakeCloud{certs: map[string]string{}, revoked: map[string]bool{}, endpointCerts: map[string]time.Time{
+		fakeServerID: time.Now().AddDate(5, 0, 0),
+		fakeRootID:   time.Now().AddDate(5, 0, 0),
+	}}
 	h.opts = &Options{
 		ConfigFile: cfgPath,
 		NewProvider: func(context.Context, *config.Config) (provider.CertStore, error) {

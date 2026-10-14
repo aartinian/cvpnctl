@@ -51,11 +51,37 @@ var versionLine = regexp.MustCompile(`(?m)^Version:\s+(\d+)\.(\d+)\.(\d+)\s*$`)
 // MinVersion or newer. Git checkouts report "~VER~" rather than a version and
 // are rejected too.
 func (c *Client) CheckVersion() error {
+	out, err := c.versionOutput()
+	if err != nil {
+		return err
+	}
+	return checkVersionOutput(c.script(), out)
+}
+
+// Version returns the EasyRSA version, e.g. "3.2.7".
+func (c *Client) Version() (string, error) {
+	out, err := c.versionOutput()
+	if err != nil {
+		return "", err
+	}
+	m := versionLine.FindStringSubmatch(out)
+	if m == nil {
+		return "", fmt.Errorf("easyrsa: can't tell the version of %s", c.script())
+	}
+	return m[1] + "." + m[2] + "." + m[3], nil
+}
+
+func (c *Client) versionOutput() (string, error) {
 	out, err := exec.Command(c.script(), "--version").Output()
 	if err != nil {
-		return fmt.Errorf("easyrsa: run %s --version: %w", c.script(), err)
+		return "", fmt.Errorf("easyrsa: run %s --version: %w", c.script(), err)
 	}
-	return checkVersionOutput(c.script(), string(out))
+	return string(out), nil
+}
+
+// Dir returns the directory of the easyrsa script.
+func (c *Client) Dir() string {
+	return c.cfg.Path
 }
 
 func checkVersionOutput(script, out string) error {
@@ -94,6 +120,34 @@ func (c *Client) CAEncrypted() bool {
 	defer func() { _ = f.Close() }()
 	first, _ := bufio.NewReader(f).ReadString('\n')
 	return strings.Contains(first, "ENCRYPTED")
+}
+
+// CACert returns the CA certificate.
+func (c *Client) CACert() (*x509.Certificate, error) {
+	return readCert(c.Files("").CA)
+}
+
+// RevokedSerials returns the serial numbers the PKI's index.txt marks as
+// revoked, normalised with NormSerial. They are what the next CRL will list.
+func (c *Client) RevokedSerials() (map[string]bool, error) {
+	data, err := os.ReadFile(filepath.Join(c.cfg.PKIDir, "index.txt"))
+	if err != nil {
+		return nil, fmt.Errorf("easyrsa: %w", err)
+	}
+	revoked := make(map[string]bool)
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) >= 4 && f[0] == "R" {
+			revoked[NormSerial(f[3])] = true
+		}
+	}
+	return revoked, nil
+}
+
+// NormSerial normalises a hex serial number so serials from index.txt and from
+// a parsed CRL compare equal: uppercase, without leading zeros.
+func NormSerial(hex string) string {
+	return strings.TrimLeft(strings.ToUpper(hex), "0")
 }
 
 // Expiry returns when user's issued certificate expires.
