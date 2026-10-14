@@ -81,8 +81,7 @@ func (o *Options) load(ctx context.Context) (*env, error) {
 
 // issued describes a freshly issued certificate.
 type issued struct {
-	providerID string
-	ovpnPath   string
+	ovpnPath string
 }
 
 // step runs fn and prints its outcome: "✓ done  detail" when it succeeds, or
@@ -197,7 +196,7 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		return nil, err
 	}
 
-	return &issued{providerID: id, ovpnPath: ovpnPath}, nil
+	return &issued{ovpnPath: ovpnPath}, nil
 }
 
 // revokeLocal revokes user's certificate in the PKI and regenerates the CRL,

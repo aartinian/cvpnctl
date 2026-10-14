@@ -18,13 +18,19 @@ import (
 // status runs `cvpnctl status` and returns its output and error.
 func (h *harness) status() (string, error) {
 	h.t.Helper()
+	return h.statusAt(time.Now())
+}
+
+// statusAt runs `cvpnctl status` as if it were now.
+func (h *harness) statusAt(now time.Time) (string, error) {
+	h.t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
 		h.t.Fatal(err)
 	}
 	old := os.Stdout
 	os.Stdout = w
-	runErr := runStatus(context.Background(), h.opts, time.Now())
+	runErr := runStatus(context.Background(), h.opts, now)
 	os.Stdout = old
 	_ = w.Close()
 	out, _ := io.ReadAll(r)
@@ -128,4 +134,36 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// One problem must not hide another: an expired endpoint CRL that is also out
+// of step reports both.
+func TestStatusReportsAllCRLProblems(t *testing.T) {
+	h := newHarness(t)
+	h.must(h.create("alice"))
+	h.must(h.revoke("alice")) // pushes a CRL, valid for 180 days
+	h.must(h.easyrsa(h.pki).BuildCert("dave"))
+	h.must(h.easyrsa(h.pki).Revoke("dave")) // revoked locally, not pushed
+
+	out, err := h.statusAt(time.Now().AddDate(0, 0, 200)) // past the CRL's validity
+	wantStatus(t, out, err, true, "expired; 1 revocation not pushed yet")
+
+	out, err = h.statusAt(time.Now().AddDate(0, 0, 170)) // within 30 days of it
+	wantStatus(t, out, err, true, "expires soon; 1 revocation not pushed yet")
+	h.must(runPushCRL(context.Background(), h.opts))
+	out, err = h.statusAt(time.Now().AddDate(0, 0, 170))
+	wantStatus(t, out, err, true, "expires soon; matches your PKI")
+}
+
+func TestStatusUnreadableCertificate(t *testing.T) {
+	h := newHarness(t)
+	h.must(h.create("alice"))
+	if err := os.WriteFile(filepath.Join(h.pki, "issued", "alice.crt"), []byte("garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.status()
+	wantStatus(t, out, err, true, "certificate unreadable")
+	if strings.Contains(out, "revoked outside cvpnctl") {
+		t.Errorf("an unreadable certificate was reported as missing:\n%s", out)
+	}
 }
