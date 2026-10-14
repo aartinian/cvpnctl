@@ -46,9 +46,9 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 	}
 	oldID := record.ProviderID
 
-	ui.Step("Renewing VPN certificate for %q", user)
+	ui.Title("Renewing %s", user)
 
-	if err := e.revokeLocal(user); err != nil {
+	if err := e.revokeLocal(user, "old certificate revoked"); err != nil {
 		return err
 	}
 
@@ -63,14 +63,11 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 	}
 
 	if oldID != "" {
-		ui.Info("deleting old certificate from cloud provider")
-		if err := e.cloud.DeleteCert(ctx, oldID); err != nil {
+		if err := e.deleteCert(ctx, oldID, "deleting the old ACM entry", "old ACM entry deleted"); err != nil {
 			return fmt.Errorf("%w\nthe renewal is otherwise complete; delete %s from the provider by hand", err, oldID)
 		}
 	}
 
-	ui.Success("certificate renewed for %q", user)
-	printIssued(iss)
-	fmt.Println("\nSend the new .ovpn file to the user securely; the old one no longer works.")
+	ui.Done("Send %s to %s securely; the old one no longer works.", ui.Path(iss.ovpnPath), user)
 	return nil
 }

@@ -2,6 +2,10 @@
 package easyrsa
 
 import (
+	"bufio"
+	"bytes"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +15,8 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/fsutil"
@@ -25,12 +31,15 @@ type Files struct {
 
 // Client runs EasyRSA against one PKI.
 type Client struct {
-	cfg *config.EasyRSAConfig
+	cfg     *config.EasyRSAConfig
+	verbose bool
 }
 
-// New returns a Client configured from cfg.
-func New(cfg *config.EasyRSAConfig) *Client {
-	return &Client{cfg: cfg}
+// New returns a Client configured from cfg. With verbose, EasyRSA's own
+// output is shown as it runs; otherwise it is captured and only shown, in
+// part, if a command fails.
+func New(cfg *config.EasyRSAConfig, verbose bool) *Client {
+	return &Client{cfg: cfg, verbose: verbose}
 }
 
 // MinVersion is the oldest EasyRSA release cvpnctl supports.
@@ -72,6 +81,64 @@ func (c *Client) Files(user string) Files {
 		Key:  filepath.Join(c.cfg.PKIDir, "private", user+".key"),
 		CA:   filepath.Join(c.cfg.PKIDir, "ca.crt"),
 	}
+}
+
+// CAEncrypted reports whether the CA key is protected by a passphrase, in
+// which case every step that signs (issuing a certificate, revoking one,
+// regenerating the CRL) asks for it.
+func (c *Client) CAEncrypted() bool {
+	f, err := os.Open(filepath.Join(c.cfg.PKIDir, "private", "ca.key"))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	first, _ := bufio.NewReader(f).ReadString('\n')
+	return strings.Contains(first, "ENCRYPTED")
+}
+
+// Expiry returns when user's issued certificate expires.
+func (c *Client) Expiry(user string) (time.Time, error) {
+	cert, err := readCert(c.Files(user).Cert)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return cert.NotAfter, nil
+}
+
+// CRLInfo returns how many certificates the current CRL revokes, and until
+// when it is valid.
+func (c *Client) CRLInfo() (revoked int, nextUpdate time.Time, err error) {
+	data, err := os.ReadFile(c.CRLPath())
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("easyrsa: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return 0, time.Time{}, fmt.Errorf("easyrsa: %s contains no PEM data", c.CRLPath())
+	}
+	crl, err := x509.ParseRevocationList(block.Bytes)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("easyrsa: parse %s: %w", c.CRLPath(), err)
+	}
+	return len(crl.RevokedCertificateEntries), crl.NextUpdate, nil
+}
+
+// readCert parses the first certificate in a PEM file. EasyRSA puts a text
+// dump in front of the PEM block, which pem.Decode skips.
+func readCert(path string) (*x509.Certificate, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("easyrsa: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("easyrsa: %s contains no PEM data", path)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("easyrsa: parse %s: %w", path, err)
+	}
+	return cert, nil
 }
 
 // CRLPath returns the path of the CRL that GenCRL writes.
@@ -171,17 +238,52 @@ func (c *Client) script() string {
 }
 
 // run executes the easyrsa script in batch mode against the configured PKI.
-// Stdin and the terminal are passed through so EasyRSA can prompt for the CA
-// key passphrase, if the CA has one.
+//
+// Unless verbose, EasyRSA's output is captured and, if the command fails, its
+// last meaningful lines are added to the error. Stdin stays connected: if the
+// CA key has a passphrase, OpenSSL prompts for it through the terminal
+// directly, so the prompt still appears while the output is captured.
 func (c *Client) run(args ...string) error {
 	cmd := exec.Command(c.script(), append([]string{"--batch"}, args...)...)
 	cmd.Dir = c.cfg.Path
 	cmd.Env = append(os.Environ(), "EASYRSA_PKI="+c.cfg.PKIDir)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	var out bytes.Buffer
+	if c.verbose {
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	} else {
+		cmd.Stdout, cmd.Stderr = &out, &out
+	}
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("easyrsa %s: %w", args[0], err)
+		hint := ""
+		if strings.Contains(out.String(), "unable to get passphrase") {
+			hint = " (the CA key has a passphrase and there was no terminal to ask for it: run cvpnctl in a terminal)"
+		}
+		if tail := lastLines(out.String(), 8); tail != "" {
+			return fmt.Errorf("easyrsa %s: %w%s; its last output:\n%s", args[0], err, hint, tail)
+		}
+		return fmt.Errorf("easyrsa %s: %w%s", args[0], err, hint)
 	}
 	return nil
+}
+
+// lastLines returns the last n meaningful lines of EasyRSA's output, indented.
+// Blank lines, OpenSSL's key-generation progress ("....+...+*") and the
+// version footer EasyRSA appends to fatal errors are noise.
+func lastLines(out string, n int) string {
+	if i := strings.Index(out, "EasyRSA Version Information"); i >= 0 {
+		out = out[:i]
+	}
+	var keep []string
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimRight(l, " \r\t")
+		if strings.Trim(l, ".+* ") == "" || strings.Trim(l, "-") == "" {
+			continue
+		}
+		keep = append(keep, "    "+l)
+	}
+	if len(keep) > n {
+		keep = keep[len(keep)-n:]
+	}
+	return strings.Join(keep, "\n")
 }

@@ -40,20 +40,12 @@ func runCreate(ctx context.Context, opts *Options, user string) error {
 		return fmt.Errorf("the PKI already has a certificate for %q that cvpnctl does not track; revoke it with easyrsa or choose another username", user)
 	}
 
-	ui.Step("Creating VPN certificate for %q", user)
+	ui.Title("Creating %s", user)
 	iss, err := e.issue(ctx, user)
 	if err != nil {
 		return err
 	}
 
-	ui.Success("certificate created for %q", user)
-	printIssued(iss)
-	fmt.Println("\nSend the .ovpn file to the user securely.")
+	ui.Done("Send %s to %s securely.", ui.Path(iss.ovpnPath), user)
 	return nil
-}
-
-func printIssued(iss *issued) {
-	ui.Field("cert dir", iss.userDir)
-	ui.Field("provider", iss.providerID)
-	ui.Field(".ovpn", iss.ovpnPath)
 }

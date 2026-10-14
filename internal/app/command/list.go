@@ -1,15 +1,16 @@
 package command
 
 import (
-	"crypto/x509"
-	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"text/tabwriter"
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
 	"github.com/aartinian/cvpnctl/internal/state"
+	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -43,15 +44,16 @@ func runList(opts *Options) error {
 		return nil
 	}
 
-	pki := easyrsa.New(&cfg.EasyRSA)
+	pki := easyrsa.New(&cfg.EasyRSA, false)
+	now := time.Now()
 	// tabwriter buffers until Flush, which reports any write error, so the
 	// individual row writes need no checks of their own.
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	_, _ = fmt.Fprintln(w, "USER\tEXPIRES\tCREATED\tUPDATED\tPROVIDER ID")
+	_, _ = fmt.Fprintf(w, "USER\t%s\tCREATED\tUPDATED\tPROVIDER ID\n", ui.Cell("EXPIRES", ui.Normal))
 	for _, r := range records {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			r.User,
-			certExpiry(pki.Files(r.User).Cert),
+			expiryCell(pki, r.User, now),
 			r.CreatedAt.Format(time.DateOnly),
 			r.UpdatedAt.Format(time.DateOnly),
 			r.ProviderID,
@@ -60,20 +62,20 @@ func runList(opts *Options) error {
 	return w.Flush()
 }
 
-// certExpiry returns the expiry date of the certificate at path, or a short
-// explanation if it cannot be read.
-func certExpiry(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "(no cert)"
+// expiryCell shows when user's certificate expires: yellow within 30 days,
+// red once expired.
+func expiryCell(pki *easyrsa.Client, user string, now time.Time) string {
+	exp, err := pki.Expiry(user)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return ui.Cell("(no cert)", ui.Critical)
+	case err != nil:
+		return ui.Cell("(unreadable)", ui.Critical)
+	case now.After(exp):
+		return ui.Cell(exp.Format(time.DateOnly), ui.Critical)
+	case exp.Sub(now) < 30*24*time.Hour:
+		return ui.Cell(exp.Format(time.DateOnly), ui.Attention)
+	default:
+		return ui.Cell(exp.Format(time.DateOnly), ui.Normal)
 	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return "(unreadable)"
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return "(unreadable)"
-	}
-	return cert.NotAfter.Format(time.DateOnly)
 }
