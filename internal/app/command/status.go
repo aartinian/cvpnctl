@@ -115,8 +115,12 @@ func runStatus(ctx context.Context, opts *Options, now time.Time) error {
 
 	for _, r := range e.users.All() {
 		exp, err := e.pki.Expiry(r.User)
-		if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			rows = append(rows, row{what: "user", name: r.User, level: ui.Critical, note: "no certificate in the PKI (revoked outside cvpnctl?)"})
+			continue
+		}
+		if err != nil {
+			rows = append(rows, row{what: "user", name: r.User, level: ui.Critical, note: "certificate unreadable: " + err.Error()})
 			continue
 		}
 		ur := expiryRow("user", r.User, exp, now)
@@ -168,9 +172,15 @@ func (e *env) endpointCRLRow(ctx context.Context, ca *x509.Certificate, now time
 		return row{what: "CRL (endpoint)", level: ui.Critical, note: "unreadable"}, nil
 	}
 
+	// Collect every problem, so one (say, a mismatch) never hides another
+	// (say, that the CRL has expired).
 	r := expiryRow("CRL (endpoint)", "", crl.NextUpdate, now)
+	var notes []string
+	if r.note != "" {
+		notes = append(notes, r.note)
+	}
 	if err := crl.CheckSignatureFrom(ca); err != nil {
-		r.level, r.note = ui.Critical, "not signed by your CA"
+		r.level, r.note = ui.Critical, strings.Join(append(notes, "not signed by your CA"), "; ")
 		return r, nil
 	}
 
@@ -190,22 +200,20 @@ func (e *env) endpointCRLRow(ctx context.Context, ca *x509.Certificate, now time
 		}
 	}
 
-	var problems []string
 	if extra > 0 {
 		// Another copy of the PKI, or a manual import, revoked these. A push
 		// from this PKI would let them connect again.
-		problems = append(problems, fmt.Sprintf("revokes %d %s your PKI doesn't", extra, plural(extra, "certificate", "certificates")))
+		notes = append(notes, fmt.Sprintf("revokes %d %s your PKI doesn't", extra, plural(extra, "certificate", "certificates")))
+		r.level = ui.Critical
 	}
 	if missing > 0 {
-		problems = append(problems, fmt.Sprintf("%d %s not pushed yet (they can still connect): run cvpnctl push-crl", missing, plural(missing, "revocation", "revocations")))
+		notes = append(notes, fmt.Sprintf("%d %s not pushed yet (they can still connect): run cvpnctl push-crl", missing, plural(missing, "revocation", "revocations")))
+		r.level = ui.Critical
 	}
-	if len(problems) > 0 {
-		r.level, r.note = ui.Critical, strings.Join(problems, "; ")
-		return r, nil
+	if extra == 0 && missing == 0 {
+		notes = append(notes, "matches your PKI")
 	}
-	if r.level == ui.Normal {
-		r.note = "matches your PKI"
-	}
+	r.note = strings.Join(notes, "; ")
 	return r, nil
 }
 
