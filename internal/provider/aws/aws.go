@@ -4,6 +4,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -11,17 +12,31 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
+	acmtypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
+// acmAPI and ec2API are the parts of the AWS SDK clients the provider uses.
+// Tests substitute fakes for them.
+type acmAPI interface {
+	ImportCertificate(context.Context, *acm.ImportCertificateInput, ...func(*acm.Options)) (*acm.ImportCertificateOutput, error)
+	DeleteCertificate(context.Context, *acm.DeleteCertificateInput, ...func(*acm.Options)) (*acm.DeleteCertificateOutput, error)
+}
+
+type ec2API interface {
+	ImportClientVpnClientCertificateRevocationList(context.Context, *ec2.ImportClientVpnClientCertificateRevocationListInput, ...func(*ec2.Options)) (*ec2.ImportClientVpnClientCertificateRevocationListOutput, error)
+}
+
 // Provider implements provider.CertStore against AWS ACM and EC2 Client VPN.
 type Provider struct {
-	acm        *acm.Client
-	ec2        *ec2.Client
+	acm        acmAPI
+	ec2        ec2API
 	endpointID string
 }
 
-// New returns a Provider configured from cfg.
+// New returns a Provider configured from cfg. It resolves credentials up
+// front, so a missing profile or an expired SSO session fails before a
+// command touches the PKI rather than at its first AWS call.
 func New(ctx context.Context, cfg *config.AWSConfig) (*Provider, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.Region),
@@ -33,6 +48,9 @@ func New(ctx context.Context, cfg *config.AWSConfig) (*Provider, error) {
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("aws: load config: %w", err)
+	}
+	if _, err := awsCfg.Credentials.Retrieve(ctx); err != nil {
+		return nil, fmt.Errorf("aws: resolve credentials: %w", err)
 	}
 
 	return &Provider{
@@ -70,13 +88,16 @@ func (p *Provider) ImportCert(ctx context.Context, certFile, keyFile, caFile str
 	return aws.ToString(out.CertificateArn), nil
 }
 
-// DeleteCert removes the certificate identified by arn from ACM.
+// DeleteCert removes the certificate identified by arn from ACM. A
+// certificate that is already gone counts as deleted, so an interrupted
+// revoke or renew can simply be run again.
 func (p *Provider) DeleteCert(ctx context.Context, arn string) error {
 	_, err := p.acm.DeleteCertificate(ctx, &acm.DeleteCertificateInput{
 		CertificateArn: aws.String(arn),
 	})
-	if err != nil {
-		return fmt.Errorf("aws: delete certificate: %w", err)
+	var notFound *acmtypes.ResourceNotFoundException
+	if err != nil && !errors.As(err, &notFound) {
+		return fmt.Errorf("aws: delete certificate %s: %w", arn, err)
 	}
 	return nil
 }
