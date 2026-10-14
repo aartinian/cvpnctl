@@ -15,5 +15,5 @@ aws:
   vpn_endpoint_id: cvpn-endpoint-0123456789abcdef0
 
 ovpn:
-  template: ~/vpn/base.ovpn     # start from base.ovpn.example
+  template: ~/.config/cvpnctl/base.ovpn   # see "Configure" in the README
   output_dir: ~/vpn/clients     # one <user>.ovpn per user
