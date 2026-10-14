@@ -8,7 +8,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
 	"github.com/aartinian/cvpnctl/internal/state"
 	"github.com/spf13/cobra"
@@ -29,7 +28,7 @@ func NewListCmd(opts *Options) *cobra.Command {
 // runList reads only the config, the state file, and the PKI; it needs no
 // cloud credentials.
 func runList(opts *Options) error {
-	cfg, err := config.Load(opts.ConfigFile)
+	cfg, err := opts.loadConfig()
 	if err != nil {
 		return err
 	}

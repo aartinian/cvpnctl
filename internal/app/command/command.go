@@ -37,8 +37,22 @@ type env struct {
 	ovpn  *ovpn.Generator
 }
 
-func (o *Options) load(ctx context.Context) (*env, error) {
+// loadConfig loads the config and warns about config files it overrides:
+// a ./cvpnctl.yaml silently taking precedence over ~/.config/cvpnctl is easy
+// to miss otherwise.
+func (o *Options) loadConfig() (*config.Config, error) {
 	cfg, err := config.Load(o.ConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range cfg.Ignored {
+		ui.Warn("using %s; ignoring %s", cfg.Path, p)
+	}
+	return cfg, nil
+}
+
+func (o *Options) load(ctx context.Context) (*env, error) {
+	cfg, err := o.loadConfig()
 	if err != nil {
 		return nil, err
 	}
