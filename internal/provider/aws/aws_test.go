@@ -7,10 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
 	acmtypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/smithy-go"
 )
 
@@ -18,6 +22,33 @@ type fakeACM struct {
 	acmAPI
 	deleteErr error
 	deleted   []string
+	certs     map[string]*acmtypes.CertificateDetail
+}
+
+func (f *fakeACM) DescribeCertificate(_ context.Context, in *acm.DescribeCertificateInput, _ ...func(*acm.Options)) (*acm.DescribeCertificateOutput, error) {
+	c, ok := f.certs[*in.CertificateArn]
+	if !ok {
+		return nil, wrapped(&acmtypes.ResourceNotFoundException{Message: new(string)})
+	}
+	return &acm.DescribeCertificateOutput{Certificate: c}, nil
+}
+
+type fakeEC2 struct {
+	ec2API
+	endpoint *ec2types.ClientVpnEndpoint
+	crl      *string
+}
+
+func (f *fakeEC2) DescribeClientVpnEndpoints(_ context.Context, _ *ec2.DescribeClientVpnEndpointsInput, _ ...func(*ec2.Options)) (*ec2.DescribeClientVpnEndpointsOutput, error) {
+	out := &ec2.DescribeClientVpnEndpointsOutput{}
+	if f.endpoint != nil {
+		out.ClientVpnEndpoints = []ec2types.ClientVpnEndpoint{*f.endpoint}
+	}
+	return out, nil
+}
+
+func (f *fakeEC2) ExportClientVpnClientCertificateRevocationList(_ context.Context, _ *ec2.ExportClientVpnClientCertificateRevocationListInput, _ ...func(*ec2.Options)) (*ec2.ExportClientVpnClientCertificateRevocationListOutput, error) {
+	return &ec2.ExportClientVpnClientCertificateRevocationListOutput{CertificateRevocationList: f.crl}, nil
 }
 
 func (f *fakeACM) DeleteCertificate(_ context.Context, in *acm.DeleteCertificateInput, _ ...func(*acm.Options)) (*acm.DeleteCertificateOutput, error) {
@@ -79,5 +110,48 @@ func TestNewChecksCredentials(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "example")
 	if _, err := New(context.Background(), &config.AWSConfig{Region: "eu-central-1"}); err != nil {
 		t.Errorf("with static credentials: %v", err)
+	}
+}
+
+func TestEndpointCerts(t *testing.T) {
+	ec2f := &fakeEC2{endpoint: &ec2types.ClientVpnEndpoint{
+		ServerCertificateArn: aws.String("arn:server"),
+		AuthenticationOptions: []ec2types.ClientVpnAuthentication{
+			{Type: ec2types.ClientVpnAuthenticationTypeCertificateAuthentication,
+				MutualAuthentication: &ec2types.CertificateAuthentication{ClientRootCertificateChain: aws.String("arn:root")}},
+		},
+	}}
+	server, root, err := (&Provider{ec2: ec2f, endpointID: "cvpn-endpoint-x"}).EndpointCerts(context.Background())
+	if err != nil || server != "arn:server" || root != "arn:root" {
+		t.Errorf("EndpointCerts() = %q, %q, %v", server, root, err)
+	}
+
+	if _, _, err := (&Provider{ec2: &fakeEC2{}, endpointID: "cvpn-endpoint-x"}).EndpointCerts(context.Background()); err == nil {
+		t.Error("missing endpoint: expected an error")
+	}
+}
+
+func TestCertInfo(t *testing.T) {
+	exp := time.Date(2032, 9, 30, 0, 0, 0, 0, time.UTC)
+	p := &Provider{acm: &fakeACM{certs: map[string]*acmtypes.CertificateDetail{
+		"arn:server": {DomainName: aws.String("vpn-server"), NotAfter: &exp},
+	}}}
+	name, notAfter, found, err := p.CertInfo(context.Background(), "arn:server")
+	if err != nil || !found || name != "vpn-server" || !notAfter.Equal(exp) {
+		t.Errorf("CertInfo() = %q, %v, %v, %v", name, notAfter, found, err)
+	}
+	if _, _, found, err := p.CertInfo(context.Background(), "arn:gone"); found || err != nil {
+		t.Errorf("missing certificate: found=%v err=%v, want not found and no error", found, err)
+	}
+}
+
+func TestExportCRL(t *testing.T) {
+	p := &Provider{ec2: &fakeEC2{crl: aws.String("-----BEGIN X509 CRL-----")}}
+	if crl, err := p.ExportCRL(context.Background()); err != nil || string(crl) != "-----BEGIN X509 CRL-----" {
+		t.Errorf("ExportCRL() = %q, %v", crl, err)
+	}
+	p = &Provider{ec2: &fakeEC2{}}
+	if crl, err := p.ExportCRL(context.Background()); err != nil || crl != nil {
+		t.Errorf("no CRL: ExportCRL() = %q, %v, want nil, nil", crl, err)
 	}
 }

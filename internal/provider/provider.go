@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/provider/aws"
@@ -25,6 +26,20 @@ type CertStore interface {
 	// ImportCRL uploads a certificate revocation list so the VPN endpoint
 	// refuses connections from revoked certificates.
 	ImportCRL(ctx context.Context, crlFile string) error
+
+	// The methods below only read. They back `cvpnctl status`.
+
+	// EndpointCerts returns the IDs of the endpoint's server certificate and
+	// of its client root certificate chain.
+	EndpointCerts(ctx context.Context) (serverID, clientRootID string, err error)
+
+	// CertInfo returns the name and expiry of the certificate identified by
+	// id. found is false, without an error, if it doesn't exist.
+	CertInfo(ctx context.Context, id string) (name string, notAfter time.Time, found bool, err error)
+
+	// ExportCRL returns the CRL the endpoint currently holds, in PEM, or nil
+	// if it has none.
+	ExportCRL(ctx context.Context) ([]byte, error)
 }
 
 // New returns the CertStore for the provider named in cfg.

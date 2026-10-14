@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,10 +22,13 @@ import (
 type acmAPI interface {
 	ImportCertificate(context.Context, *acm.ImportCertificateInput, ...func(*acm.Options)) (*acm.ImportCertificateOutput, error)
 	DeleteCertificate(context.Context, *acm.DeleteCertificateInput, ...func(*acm.Options)) (*acm.DeleteCertificateOutput, error)
+	DescribeCertificate(context.Context, *acm.DescribeCertificateInput, ...func(*acm.Options)) (*acm.DescribeCertificateOutput, error)
 }
 
 type ec2API interface {
 	ImportClientVpnClientCertificateRevocationList(context.Context, *ec2.ImportClientVpnClientCertificateRevocationListInput, ...func(*ec2.Options)) (*ec2.ImportClientVpnClientCertificateRevocationListOutput, error)
+	ExportClientVpnClientCertificateRevocationList(context.Context, *ec2.ExportClientVpnClientCertificateRevocationListInput, ...func(*ec2.Options)) (*ec2.ExportClientVpnClientCertificateRevocationListOutput, error)
+	DescribeClientVpnEndpoints(context.Context, *ec2.DescribeClientVpnEndpointsInput, ...func(*ec2.Options)) (*ec2.DescribeClientVpnEndpointsOutput, error)
 }
 
 // Provider implements provider.CertStore against AWS ACM and EC2 Client VPN.
@@ -125,4 +129,52 @@ func (p *Provider) ImportCRL(ctx context.Context, crlFile string) error {
 	}
 
 	return nil
+}
+
+// EndpointCerts returns the ARNs of the endpoint's server certificate and of
+// the client root certificate chain used for mutual authentication.
+func (p *Provider) EndpointCerts(ctx context.Context) (serverID, clientRootID string, err error) {
+	out, err := p.ec2.DescribeClientVpnEndpoints(ctx, &ec2.DescribeClientVpnEndpointsInput{
+		ClientVpnEndpointIds: []string{p.endpointID},
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("aws: describe %s: %w", p.endpointID, err)
+	}
+	if len(out.ClientVpnEndpoints) == 0 {
+		return "", "", fmt.Errorf("aws: endpoint %s not found", p.endpointID)
+	}
+	ep := out.ClientVpnEndpoints[0]
+	for _, a := range ep.AuthenticationOptions {
+		if a.MutualAuthentication != nil {
+			clientRootID = aws.ToString(a.MutualAuthentication.ClientRootCertificateChain)
+		}
+	}
+	return aws.ToString(ep.ServerCertificateArn), clientRootID, nil
+}
+
+// CertInfo returns the domain name and expiry of an ACM certificate.
+func (p *Provider) CertInfo(ctx context.Context, arn string) (name string, notAfter time.Time, found bool, err error) {
+	out, err := p.acm.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(arn)})
+	var notFound *acmtypes.ResourceNotFoundException
+	if errors.As(err, &notFound) {
+		return "", time.Time{}, false, nil
+	}
+	if err != nil {
+		return "", time.Time{}, false, fmt.Errorf("aws: describe certificate %s: %w", arn, err)
+	}
+	return aws.ToString(out.Certificate.DomainName), aws.ToTime(out.Certificate.NotAfter), true, nil
+}
+
+// ExportCRL returns the CRL currently imported to the endpoint, or nil.
+func (p *Provider) ExportCRL(ctx context.Context) ([]byte, error) {
+	out, err := p.ec2.ExportClientVpnClientCertificateRevocationList(ctx,
+		&ec2.ExportClientVpnClientCertificateRevocationListInput{ClientVpnEndpointId: aws.String(p.endpointID)},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("aws: export CRL from %s: %w", p.endpointID, err)
+	}
+	if crl := aws.ToString(out.CertificateRevocationList); crl != "" {
+		return []byte(crl), nil
+	}
+	return nil, nil
 }

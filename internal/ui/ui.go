@@ -129,3 +129,16 @@ func Cell(s string, level Level) string {
 		return plain + s + reset
 	}
 }
+
+// Mark returns the status symbol for level: ✓, ! or ✗, coloured like Cell so
+// a table stays aligned.
+func Mark(level Level) string {
+	switch level {
+	case Attention:
+		return paint(colorOut, yellow, "!")
+	case Critical:
+		return paint(colorOut, red, "✗")
+	default:
+		return paint(colorOut, green, "✓")
+	}
+}

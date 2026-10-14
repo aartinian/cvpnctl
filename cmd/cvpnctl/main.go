@@ -19,9 +19,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	err := app.Run(ctx, resolveVersion(), os.Args[1:])
 	stop()
-	if err != nil {
+	code := app.ExitCode(err)
+	if code == 1 {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	}
+	if code != 0 {
+		os.Exit(code) // status has already reported what needs attention
 	}
 }
 

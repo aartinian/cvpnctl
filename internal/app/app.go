@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/aartinian/cvpnctl/internal/app/command"
 	"github.com/aartinian/cvpnctl/internal/provider"
@@ -35,8 +36,22 @@ func Run(ctx context.Context, version string, args []string) error {
 		command.NewRevokeCmd(opts),
 		command.NewListCmd(opts),
 		command.NewPushCRLCmd(opts),
+		command.NewStatusCmd(opts),
 	)
 
 	root.SetArgs(args)
 	return root.ExecuteContext(ctx)
+}
+
+// ExitCode maps the error Run returned to the process exit code: 0 for
+// success, 2 when status found something that needs attention, 1 otherwise.
+func ExitCode(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, command.ErrNeedsAttention):
+		return 2
+	default:
+		return 1
+	}
 }

@@ -114,3 +114,20 @@ func TestCAEncrypted(t *testing.T) {
 		})
 	}
 }
+
+func TestRevokedSerials(t *testing.T) {
+	dir := t.TempDir()
+	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=alice\n" +
+		"R\t270420223927Z\t261013150000Z\t0cd34\tunknown\t/CN=bob\n" +
+		"R\t250120210018Z\t261013150000Z\tEF56\tunknown\t/CN=carol\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.txt"), []byte(index), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(&config.EasyRSAConfig{PKIDir: dir}, false).RevokedSerials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got["CD34"] || !got["EF56"] {
+		t.Errorf("RevokedSerials() = %v, want CD34 and EF56", got)
+	}
+}
