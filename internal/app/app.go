@@ -40,6 +40,7 @@ func Run(ctx context.Context, version string, args []string) error {
 		command.NewLinkCmd(opts),
 		command.NewTemplateCmd(opts),
 		command.NewStoreCmd(opts),
+		command.NewUnlockCmd(opts),
 	)
 
 	root.SetArgs(args)

@@ -66,9 +66,20 @@ func runStatus(ctx context.Context, opts *Options, now time.Time) error {
 	}
 	fmt.Printf("config     %s\n", ui.Path(e.cfg.Path))
 	fmt.Printf("easyrsa    %s (%s)\n", version, ui.Path(e.pki.Dir()))
-	fmt.Printf("endpoint   %s (%s)\n\n", e.cfg.AWS.VPNEndpointID, e.cfg.AWS.Region)
+	fmt.Printf("endpoint   %s (%s)\n", e.cfg.AWS.VPNEndpointID, e.cfg.AWS.Region)
+	if e.ws.Remote() {
+		fmt.Printf("store      s3://%s/%s\n", e.cfg.Store.Bucket, e.cfg.Store.Prefix)
+	}
+	fmt.Println()
 
 	var rows []row
+	if e.ws.Remote() {
+		storeRows, err := e.storeRows(ctx, now)
+		if err != nil {
+			return err
+		}
+		rows = append(rows, storeRows...)
+	}
 
 	ca, err := e.pki.CACert()
 	if err != nil {
@@ -262,4 +273,47 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// storeRows describes the shared store: whether the bucket is set up as the
+// shared PKI needs, the current archive version, and the lock, if held.
+func (e *env) storeRows(ctx context.Context, now time.Time) ([]row, error) {
+	sc := *e.cfg.Store
+	var rows []row
+
+	problems, err := store.CheckBucket(ctx, e.s3, sc)
+	if err != nil {
+		return nil, err
+	}
+	bucket := row{what: "bucket", name: sc.Bucket, note: "versioning, KMS, public access blocked"}
+	if len(problems) > 0 {
+		var notes []string
+		for _, p := range problems {
+			notes = append(notes, p.What+" "+p.Detail)
+		}
+		bucket.level, bucket.note = ui.Critical, strings.Join(notes, "; ")
+	}
+	rows = append(rows, bucket)
+
+	if v, ok, err := store.Current(ctx, e.s3, sc); err != nil {
+		return nil, err
+	} else if ok {
+		rows = append(rows, row{what: "store", name: "version " + shortVersion(v.ID),
+			note: fmt.Sprintf("written %s by %s", v.Modified.Local().Format("2006-01-02 15:04"), orDash(v.Writer))})
+	}
+
+	info, held, err := store.ReadLock(ctx, e.s3, sc)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		lock := row{what: "lock", name: info.Host,
+			note: fmt.Sprintf("held by %s for '%s', taken %s ago", info.ARN, info.Command, age(now.Sub(info.Started)))}
+		if now.Sub(info.Started) > time.Hour {
+			lock.level = ui.Attention
+			lock.note += "; if that command crashed: cvpnctl unlock"
+		}
+		rows = append(rows, lock)
+	}
+	return rows, nil
 }
