@@ -64,6 +64,13 @@ func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error 
 	if err := e.pushCRL(ctx); err != nil {
 		return err
 	}
+	if e.deliver != nil {
+		if err := step("removing the link", "link removed", func() (string, error) {
+			return "", e.deliver.Remove(ctx, user)
+		}); err != nil {
+			return err
+		}
+	}
 	if record.ProviderID != "" {
 		if err := e.deleteCert(ctx, record.ProviderID, "deleting the ACM entry", "ACM entry deleted"); err != nil {
 			return err

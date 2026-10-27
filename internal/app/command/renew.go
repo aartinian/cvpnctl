@@ -11,16 +11,20 @@ import (
 
 // NewRenewCmd returns the renew subcommand.
 func NewRenewCmd(opts *Options) *cobra.Command {
-	var user string
+	var (
+		user  string
+		hours int
+	)
 	cmd := &cobra.Command{
 		Use:   "renew --user <username>",
 		Short: "Reissue an existing user's certificate and revoke the old one",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runRenew(cmd.Context(), opts, user)
+			return runRenew(cmd.Context(), opts, user, hours)
 		},
 	}
 	cmd.Flags().StringVarP(&user, "user", "u", "", "username (required)")
+	cmd.Flags().IntVar(&hours, "link-hours", 0, "how long the .ovpn link is valid, 1–168 (S3 mode; default: store.link_hours)")
 	_ = cmd.MarkFlagRequired("user")
 	return cmd
 }
@@ -32,7 +36,7 @@ func NewRenewCmd(opts *Options) *cobra.Command {
 // CRL is pushed, which happens only once the new certificate is fully in place:
 // a failure before that leaves the user's current .ovpn working, and running
 // renew again picks up where this run stopped.
-func runRenew(ctx context.Context, opts *Options, user string) error {
+func runRenew(ctx context.Context, opts *Options, user string, hoursFlag int) error {
 	if err := validateUser(user); err != nil {
 		return err
 	}
@@ -47,6 +51,10 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 		return fmt.Errorf("user %q not found; use 'cvpnctl create' first", user)
 	}
 	oldID := record.ProviderID
+	hours, err := linkHours(e.cfg, hoursFlag)
+	if err != nil {
+		return err
+	}
 
 	ui.Title("Renewing %s", user)
 
@@ -72,7 +80,11 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 
 	e.saved()
 	if e.ws.Remote() {
-		ui.Done("Certificate renewed for %s; the old one no longer works.", user)
+		url, err := e.publish(ctx, user, hours)
+		if err != nil {
+			return fmt.Errorf("%w\nthe renewal is complete; run 'cvpnctl link -u %s' to get the new link", err, user)
+		}
+		sendLink(user, url, "Their old .ovpn no longer works.")
 		return nil
 	}
 	ui.Done("Send %s to %s securely; the old one no longer works.", ui.Path(iss.ovpnPath), user)

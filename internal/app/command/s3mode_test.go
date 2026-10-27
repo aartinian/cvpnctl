@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/delivery"
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
 	"github.com/aartinian/cvpnctl/internal/provider"
 	"github.com/aartinian/cvpnctl/internal/store"
@@ -65,6 +66,8 @@ aws:
 	h.opts.NewS3 = func(context.Context, *config.Config) (store.S3API, func(context.Context) (string, error), error) {
 		return h.s3, func(context.Context) (string, error) { return testCaller, nil }, nil
 	}
+	h.presign = &stubPresigner{}
+	h.opts.NewPresigner = func(context.Context, *config.Config) (delivery.Presigner, error) { return h.presign, nil }
 	return h
 }
 
@@ -217,3 +220,5 @@ func TestS3List(t *testing.T) {
 }
 
 var _ = time.Second
+
+var storeCfg = config.StoreConfig{Bucket: "b", Prefix: "cvpnctl/"}

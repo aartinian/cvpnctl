@@ -52,7 +52,7 @@ func TestRejectsOldEasyRSA(t *testing.T) {
 		},
 	}
 
-	err := runCreate(context.Background(), opts, "alice")
+	err := runCreate(context.Background(), opts, "alice", 0)
 	if err == nil || !strings.Contains(err.Error(), "is version 3.1.7; cvpnctl needs 3.2.7 or later") {
 		t.Fatalf("err = %v, want a version error", err)
 	}
