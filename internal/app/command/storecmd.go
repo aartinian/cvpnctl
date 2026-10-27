@@ -59,15 +59,16 @@ changes in AWS or for users.`,
 		Short: "Make an earlier version of the PKI the current one",
 		Long: `Make an earlier stored version of the PKI the current one, as a new version
 on top (nothing is deleted). It shows what changes first. If the restored
-state would un-revoke certificates (revoked now, valid in that version), it
-names them and asks you to type 'restore'; --yes is not accepted then.
+state would un-revoke certificates (revoked now, valid in that version), or
+lose track of valid ones (issued after that version, so it couldn't revoke
+them), it names them and asks you to type 'restore'; --yes is not accepted then.
 Restore never pushes a CRL: check with 'cvpnctl status' afterwards.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRestore(cmd.Context(), opts, args[0], yes)
 		},
 	}
-	restore.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation (refused if the restore would un-revoke certificates)")
+	restore.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation (refused if the restore would un-revoke certificates or lose track of valid ones)")
 
 	cmd.AddCommand(migrate, versions, restore)
 	return cmd

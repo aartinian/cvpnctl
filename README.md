@@ -180,8 +180,10 @@ How it works:
   `cvpnctl unlock` removes a lock left behind by a crash.
 - Every change is a new S3 version: `cvpnctl store versions` lists them and
   `cvpnctl store restore <version>` brings one back. If that would let a
-  revoked certificate connect again, restore names it and asks you to type
-  `restore`.
+  revoked certificate connect again, or leave a valid certificate that the
+  restored PKI doesn't know (and so can't revoke), restore names it and asks
+  you to type `restore`. Restoring across a certificate's creation or
+  revocation is never fully safe; it is meant for undoing other changes.
 - `create` and `renew` don't write a `.ovpn` file. They print a link, valid
   for `link_hours`, that the user opens to download it; users need no AWS
   access. Send the link directly, since it contains the user's private key.

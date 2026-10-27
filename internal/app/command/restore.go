@@ -100,9 +100,9 @@ func runRestore(ctx context.Context, opts *Options, version string, yes bool) er
 	d.print()
 
 	switch {
-	case len(d.unrevoked) > 0 && yes:
-		return errors.New("--yes is not accepted when a restore would un-revoke certificates")
-	case len(d.unrevoked) > 0:
+	case d.dangerous() && yes:
+		return errors.New("--yes is not accepted when a restore would un-revoke certificates or lose track of valid ones")
+	case d.dangerous():
 		ok, err := confirmTyped("Type 'restore' to restore anyway; any other answer aborts:", "restore")
 		if err != nil {
 			return err
@@ -129,8 +129,9 @@ func runRestore(ctx context.Context, opts *Options, version string, yes bool) er
 		return err
 	}
 	e.saved()
-	if len(d.unrevoked) > 0 {
-		ui.Done("Run 'cvpnctl status', then revoke %s again before anything pushes a CRL: the next push would otherwise let them connect.", strings.Join(d.unrevoked, ", "))
+	if d.dangerous() {
+		ui.Done("Run 'cvpnctl status'. Revoke %s again before anything pushes a CRL; certificates the PKI no longer knows (%s) can only be stopped by a new CA.",
+			orDash(strings.Join(d.unrevoked, ", ")), orDash(strings.Join(d.untracked, ", ")))
 		return nil
 	}
 	ui.Done("Run 'cvpnctl status' to check that ACM and the endpoint match the restored PKI. No CRL was pushed.")
@@ -142,8 +143,13 @@ func runRestore(ctx context.Context, opts *Options, version string, yes bool) er
 type stateDiff struct {
 	added, removed []string // users
 	unrevoked      []string // revoked now (locally or on the endpoint), valid in the target
+	untracked      []string // valid now, absent from the target's PKI: could never be revoked
 	revoked        []string // valid now, revoked in the target
 }
+
+// dangerous reports whether the restore would let someone keep or regain
+// access that the restored PKI can't take away again.
+func (d stateDiff) dangerous() bool { return len(d.unrevoked) > 0 || len(d.untracked) > 0 }
 
 func (d stateDiff) print() {
 	line := func(label string, names []string) {
@@ -156,9 +162,12 @@ func (d stateDiff) print() {
 	line("users added", d.added)
 	line("users removed", d.removed)
 	line("revoked", d.revoked)
+	// On stdout, right next to the prompt that asks to type 'restore'.
 	if len(d.unrevoked) > 0 {
-		// On stdout too, right next to the prompt that asks to type 'restore'.
 		fmt.Printf("  ! revocations lost: %s would be able to connect again after the next CRL push\n", strings.Join(d.unrevoked, ", "))
+	}
+	if len(d.untracked) > 0 {
+		fmt.Printf("  ! certificates lost: %s would keep a valid certificate that the restored PKI doesn't know, so it could never be revoked; revoke them before restoring\n", strings.Join(d.untracked, ", "))
 	}
 }
 
@@ -179,10 +188,27 @@ func (e *env) diffWith(ctx context.Context, target string) (stateDiff, error) {
 	}
 	nameOf := map[string]string{}
 	curRevoked := map[string]bool{}
+	curValid := map[string]bool{}
 	for _, x := range curIndex {
 		nameOf[x.Serial] = x.Name
-		if x.Status == "R" {
+		switch x.Status {
+		case "R":
 			curRevoked[x.Serial] = true
+		case "V":
+			curValid[x.Serial] = true
+		}
+	}
+	tgtIndex, err := easyrsa.New(&config.EasyRSAConfig{PKIDir: filepath.Join(target, "pki")}, false).Index()
+	if err != nil {
+		return d, err
+	}
+	inTarget := map[string]bool{}
+	for _, x := range tgtIndex {
+		inTarget[x.Serial] = true
+	}
+	for serial := range curValid {
+		if !inTarget[serial] {
+			d.untracked = append(d.untracked, orDefault(nameOf[serial], "serial "+serial))
 		}
 	}
 	onEndpoint, err := e.endpointRevoked(ctx)
@@ -207,6 +233,7 @@ func (e *env) diffWith(ctx context.Context, target string) (stateDiff, error) {
 		}
 	}
 	sort.Strings(d.unrevoked)
+	sort.Strings(d.untracked)
 	sort.Strings(d.revoked)
 	return d, nil
 }
