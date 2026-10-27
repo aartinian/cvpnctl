@@ -1,0 +1,153 @@
+package store
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPackUnpackRoundTrip(t *testing.T) {
+	src := t.TempDir()
+	files := map[string]string{
+		"pki/ca.crt":                "CA",
+		"pki/private/ca.key":        "KEY",
+		"pki/index.txt":             "V\t…",
+		"state/.cvpnctl-state.json": "{}",
+		"template/base.ovpn":        "client",
+	}
+	for p, body := range files {
+		writeFile(t, filepath.Join(src, p), body)
+	}
+
+	data, err := Pack(src)
+	if err != nil {
+		t.Fatalf("Pack: %v", err)
+	}
+	dst := t.TempDir()
+	if err := Unpack(data, dst); err != nil {
+		t.Fatalf("Unpack: %v", err)
+	}
+	for p, body := range files {
+		got, err := os.ReadFile(filepath.Join(dst, p))
+		if err != nil || string(got) != body {
+			t.Errorf("%s = %q, %v; want %q", p, got, err, body)
+		}
+		fi, _ := os.Stat(filepath.Join(dst, p))
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %o, want 600", p, fi.Mode().Perm())
+		}
+	}
+	fi, _ := os.Stat(filepath.Join(dst, "pki", "private"))
+	if fi.Mode().Perm() != 0o700 {
+		t.Errorf("directory mode = %o, want 700", fi.Mode().Perm())
+	}
+}
+
+func TestPackIsDeterministic(t *testing.T) {
+	src := t.TempDir()
+	writeFile(t, filepath.Join(src, "pki/b"), "b")
+	writeFile(t, filepath.Join(src, "pki/a"), "a")
+	one, _ := Pack(src)
+	two, _ := Pack(src)
+	if !bytes.Equal(one, two) {
+		t.Error("two packs of the same tree differ")
+	}
+}
+
+func TestPackIgnoresOtherDirs(t *testing.T) {
+	src := t.TempDir()
+	writeFile(t, filepath.Join(src, "pki/ca.crt"), "CA")
+	writeFile(t, filepath.Join(src, "out/alice.ovpn"), "secret")
+	data, _ := Pack(src)
+	dst := t.TempDir()
+	if err := Unpack(data, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "out")); err == nil {
+		t.Error("out/ was packed")
+	}
+}
+
+func TestPackRequiresPKI(t *testing.T) {
+	if _, err := Pack(t.TempDir()); err == nil {
+		t.Error("Pack without pki/ succeeded")
+	}
+}
+
+// rawArchive builds a .tar.gz from hand-made headers, to produce archives
+// Pack never would.
+func rawArchive(t *testing.T, entries ...tar.Header) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, h := range entries {
+		h := h
+		if h.Typeflag == tar.TypeReg && h.Size == 0 {
+			h.Size = 1
+		}
+		if err := tw.WriteHeader(&h); err != nil {
+			t.Fatal(err)
+		}
+		if h.Typeflag == tar.TypeReg {
+			if _, err := tw.Write(bytes.Repeat([]byte("x"), int(h.Size))); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestUnpackRejects(t *testing.T) {
+	reg := func(name string) tar.Header { return tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o600} }
+	tests := map[string][]tar.Header{
+		"parent dir":     {reg("../x")},
+		"nested parent":  {reg("pki/../../x")},
+		"absolute":       {reg("/etc/x")},
+		"symlink":        {{Name: "pki/link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"}},
+		"hard link":      {{Name: "pki/link", Typeflag: tar.TypeLink, Linkname: "pki/ca.crt"}},
+		"char device":    {{Name: "pki/dev", Typeflag: tar.TypeChar}},
+		"unknown top":    {reg("other/x")},
+		"top-level file": {reg("ca.crt")},
+		"too large":      {{Name: "pki/big", Typeflag: tar.TypeReg, Size: 11 << 20, Mode: 0o600}},
+	}
+	for name, entries := range tests {
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			dst := filepath.Join(parent, "root")
+			err := Unpack(rawArchive(t, entries...), dst)
+			if !errors.Is(err, ErrUnsafeArchive) {
+				t.Errorf("err = %v, want ErrUnsafeArchive", err)
+			}
+			if _, err := os.Stat(filepath.Join(parent, "x")); err == nil {
+				t.Error("a file was written outside the root")
+			}
+		})
+	}
+}
+
+func TestUnpackRejectsGarbage(t *testing.T) {
+	if err := Unpack([]byte("not a gzip"), t.TempDir()); err == nil {
+		t.Error("Unpack accepted garbage")
+	}
+}
