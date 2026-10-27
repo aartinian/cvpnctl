@@ -38,25 +38,33 @@ type Provider struct {
 	endpointID string
 }
 
-// New returns a Provider configured from cfg. It resolves credentials up
-// front, so a missing profile or an expired SSO session fails before a
-// command touches the PKI rather than at its first AWS call.
-func New(ctx context.Context, cfg *config.AWSConfig) (*Provider, error) {
+// LoadConfig returns the AWS SDK configuration for cfg's region and profile.
+// It resolves credentials up front, so a missing profile or expired
+// credentials fail before a command touches the PKI rather than at its first
+// AWS call.
+func LoadConfig(ctx context.Context, cfg *config.AWSConfig) (aws.Config, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.Region),
 	}
 	if cfg.Profile != "" {
 		opts = append(opts, awsconfig.WithSharedConfigProfile(cfg.Profile))
 	}
-
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("aws: load config: %w", err)
+		return aws.Config{}, fmt.Errorf("aws: load config: %w", err)
 	}
 	if _, err := awsCfg.Credentials.Retrieve(ctx); err != nil {
-		return nil, fmt.Errorf("aws: resolve credentials: %w", err)
+		return aws.Config{}, fmt.Errorf("aws: resolve credentials: %w", err)
 	}
+	return awsCfg, nil
+}
 
+// New returns a Provider configured from cfg.
+func New(ctx context.Context, cfg *config.AWSConfig) (*Provider, error) {
+	awsCfg, err := LoadConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &Provider{
 		acm:        acm.NewFromConfig(awsCfg),
 		ec2:        ec2.NewFromConfig(awsCfg),

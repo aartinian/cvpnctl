@@ -17,3 +17,12 @@ aws:
 ovpn:
   template: ~/.config/cvpnctl/base.ovpn   # see "Configure" in the README
   output_dir: ~/vpn/clients     # one <user>.ovpn per user
+
+# Shared PKI in S3 (several admins): add this section and remove
+# easyrsa.pki_dir, certs and ovpn above. See "Shared PKI in S3" in the README.
+#
+# store:
+#   bucket: acme-vpn-pki
+#   prefix: cvpnctl/          # optional
+#   kms_key_id: alias/cvpnctl
+#   link_hours: 24            # how long .ovpn links stay valid, 1–168

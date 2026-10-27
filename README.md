@@ -139,6 +139,9 @@ later one is being ignored.
 - `revoke` asks for confirmation; `--yes` skips it, for scripts.
 - `-v` shows EasyRSA's output; `-c <file>` selects a config file.
 
+In S3 mode (below) there are also `link`, `template show|set`, `unlock`, and
+`store migrate|versions|restore`.
+
 `status` exits with `0` when all is well, `2` when something expires within 30
 days, has expired, or the endpoint's CRL is out of date, and `1` when the
 check itself fails. To get a monthly reminder through cron:
@@ -146,6 +149,82 @@ check itself fails. To get a monthly reminder through cron:
 ```
 0 9 1 * * out=$(/usr/local/bin/cvpnctl status 2>&1) || echo "$out"
 ```
+
+## Shared PKI in S3
+
+By default the PKI, cvpnctl's state file and the template are local files.
+For several admins, keep them in S3 instead: add a `store` section and remove
+`easyrsa.pki_dir`, `certs.output_dir` and the `ovpn` section.
+
+```yaml
+easyrsa:
+  path: ~/easy-rsa
+store:
+  bucket: acme-vpn-pki
+  prefix: cvpnctl/              # optional
+  kms_key_id: alias/cvpnctl
+  link_hours: 24                # how long .ovpn links stay valid, 1–168
+aws:
+  region: eu-central-1          # the bucket must be in this region too
+  profile: default
+  vpn_endpoint_id: cvpn-endpoint-0123456789abcdef0
+```
+
+How it works:
+
+- The PKI, the state and the template are one archive, `pki.tar.gz`. A
+  command downloads it into a private temp folder, works there, and uploads
+  it again; the temp folder is deleted afterwards. No keys stay on disk.
+- Commands that change something take a lock. A second admin gets
+  `locked by <user> on <host> since <time> (<command>)` and nothing changes.
+  `cvpnctl unlock` removes a lock left behind by a crash.
+- Every change is a new S3 version: `cvpnctl store versions` lists them and
+  `cvpnctl store restore <version>` brings one back. If that would let a
+  revoked certificate connect again, restore names it and asks you to type
+  `restore`.
+- `create` and `renew` don't write a `.ovpn` file. They print a link, valid
+  for `link_hours`, that the user opens to download it; users need no AWS
+  access. Send the link directly, since it contains the user's private key.
+  `cvpnctl link -u <user>` makes a new one (same certificate), and `revoke`
+  deletes it.
+- `cvpnctl template show` and `cvpnctl template set <file>` read and replace
+  the template.
+
+**Setting it up.** Create in your infrastructure code a bucket (versioning on,
+default encryption with a KMS key, all public access blocked) and a KMS key.
+Then move a local setup over:
+
+```
+cvpnctl store migrate --from ~/.config/cvpnctl/cvpnctl.local.yaml
+```
+
+`migrate` checks the bucket's settings, never overwrites an existing PKI,
+verifies the upload file by file, and deletes nothing locally. `status` then
+also shows the bucket's settings, the current version, and the lock.
+
+**Additional permissions** for the admins (on top of those above):
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"],
+  "Resource": "arn:aws:s3:::acme-vpn-pki/cvpnctl/*"
+},
+{
+  "Effect": "Allow",
+  "Action": ["s3:ListBucket", "s3:ListBucketVersions", "s3:GetBucketVersioning",
+             "s3:GetEncryptionConfiguration", "s3:GetBucketPublicAccessBlock"],
+  "Resource": "arn:aws:s3:::acme-vpn-pki"
+},
+{
+  "Effect": "Allow",
+  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
+  "Resource": "<the KMS key's ARN>"
+}
+```
+
+A link is signed with the admin's access key: it stops working early if that
+key is deactivated, and it can be valid for at most 7 days.
 
 ## Certificates and expiry
 
