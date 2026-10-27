@@ -41,7 +41,35 @@ changes in AWS or for users.`,
 	}
 	migrate.Flags().StringVar(&from, "from", "", "the local-mode config whose PKI to upload (required)")
 	_ = migrate.MarkFlagRequired("from")
-	cmd.AddCommand(migrate)
+
+	var details string
+	versions := &cobra.Command{
+		Use:   "versions",
+		Short: "List the stored versions of the PKI",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runVersions(cmd.Context(), opts, details)
+		},
+	}
+	versions.Flags().StringVar(&details, "details", "", "show the users and revocations held by this version")
+
+	var yes bool
+	restore := &cobra.Command{
+		Use:   "restore <version>",
+		Short: "Make an earlier version of the PKI the current one",
+		Long: `Make an earlier stored version of the PKI the current one, as a new version
+on top (nothing is deleted). It shows what changes first. If the restored
+state would un-revoke certificates (revoked now, valid in that version), it
+names them and asks you to type 'restore'; --yes is not accepted then.
+Restore never pushes a CRL: check with 'cvpnctl status' afterwards.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRestore(cmd.Context(), opts, args[0], yes)
+		},
+	}
+	restore.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation (refused if the restore would un-revoke certificates)")
+
+	cmd.AddCommand(migrate, versions, restore)
 	return cmd
 }
 

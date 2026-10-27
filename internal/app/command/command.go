@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -49,6 +50,7 @@ type env struct {
 	ovpn  *ovpn.Generator
 
 	deliver *delivery.Deliverer // nil in local mode
+	s3      store.S3API         // nil in local mode
 }
 
 // loadConfig loads the config and warns about config files it overrides:
@@ -99,6 +101,7 @@ func (o *Options) newEnv(ctx context.Context, cfg *config.Config, mode store.Mod
 	e := &env{
 		cfg:  cfg,
 		ws:   ws,
+		s3:   client,
 		pki:  easyrsa.New(&config.EasyRSAConfig{Path: cfg.EasyRSA.Path, PKIDir: ws.PKIDir()}, o.Verbose),
 		ovpn: ovpn.New(&config.OVPNConfig{Template: ws.TemplatePath(), OutputDir: ws.OutDir()}),
 	}
@@ -422,10 +425,39 @@ func confirm(question string) (bool, error) {
 		return false, errors.New("stdin is not a terminal; pass --yes to confirm")
 	}
 	fmt.Printf("%s [y/N] ", question)
-	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	answer, err := readAnswer()
 	if err != nil {
 		return false, err
 	}
 	answer = strings.ToLower(strings.TrimSpace(answer))
 	return answer == "y" || answer == "yes", nil
+}
+
+// confirmTyped asks the user to type word to go ahead, for actions where a
+// reflexive "y" is too easy. Like confirm, it refuses without a terminal.
+func confirmTyped(prompt, word string) (bool, error) {
+	fi, err := os.Stdin.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return false, errors.New("stdin is not a terminal; this can only be confirmed interactively")
+	}
+	fmt.Printf("%s ", prompt)
+	answer, err := readAnswer()
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(answer) == word, nil
+}
+
+// readAnswer reads one line from stdin. Closed input (EOF, as from
+// /dev/null, which passes the terminal check) counts as no answer.
+func readAnswer() (string, error) {
+	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if errors.Is(err, io.EOF) && answer == "" {
+		fmt.Println()
+		return "", errors.New("no answer (stdin closed); aborted")
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return answer, nil
 }

@@ -127,18 +127,51 @@ func (c *Client) CACert() (*x509.Certificate, error) {
 	return readCert(c.Files("").CA)
 }
 
-// RevokedSerials returns the serial numbers the PKI's index.txt marks as
-// revoked, normalised with NormSerial. They are what the next CRL will list.
-func (c *Client) RevokedSerials() (map[string]bool, error) {
+// IndexEntry is one certificate in the PKI's index.txt.
+type IndexEntry struct {
+	Status string // "V" valid, "R" revoked, "E" expired
+	Serial string // normalised with NormSerial
+	Name   string // the subject's common name
+}
+
+// Index returns every certificate the PKI has issued, in index.txt order.
+func (c *Client) Index() ([]IndexEntry, error) {
 	data, err := os.ReadFile(filepath.Join(c.cfg.PKIDir, "index.txt"))
 	if err != nil {
 		return nil, fmt.Errorf("easyrsa: %w", err)
 	}
-	revoked := make(map[string]bool)
+	var entries []IndexEntry
 	for _, line := range strings.Split(string(data), "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) >= 4 && f[0] == "R" {
-			revoked[NormSerial(f[3])] = true
+		if len(f) < 6 {
+			continue
+		}
+		entries = append(entries, IndexEntry{Status: f[0], Serial: NormSerial(f[3]), Name: commonName(f[5])})
+	}
+	return entries, nil
+}
+
+// commonName extracts CN from a subject like "/C=CH/CN=alice/O=x".
+func commonName(subject string) string {
+	for _, part := range strings.Split(subject, "/") {
+		if cn, ok := strings.CutPrefix(part, "CN="); ok {
+			return cn
+		}
+	}
+	return subject
+}
+
+// RevokedSerials returns the serial numbers the PKI's index.txt marks as
+// revoked, normalised with NormSerial. They are what the next CRL will list.
+func (c *Client) RevokedSerials() (map[string]bool, error) {
+	entries, err := c.Index()
+	if err != nil {
+		return nil, err
+	}
+	revoked := make(map[string]bool)
+	for _, e := range entries {
+		if e.Status == "R" {
+			revoked[e.Serial] = true
 		}
 	}
 	return revoked, nil
