@@ -49,6 +49,14 @@ func newHarnessS3(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 
+	h.useS3Config(h.opts.ConfigFile)
+	return h
+}
+
+// useS3Config writes an S3-mode config to path, makes it the active config,
+// and wires the fake bucket and presigner into the options.
+func (h *harness) useS3Config(path string) {
+	h.t.Helper()
 	cfg := fmt.Sprintf(`
 easyrsa:
   path: %s
@@ -59,16 +67,19 @@ store:
 aws:
   region: eu-central-1
   vpn_endpoint_id: cvpn-endpoint-test
-`, findEasyRSA(t))
-	if err := os.WriteFile(h.opts.ConfigFile, []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
+`, findEasyRSA(h.t))
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		h.t.Fatal(err)
+	}
+	h.opts.ConfigFile = path
+	if h.s3 == nil {
+		h.s3 = storetest.New()
 	}
 	h.opts.NewS3 = func(context.Context, *config.Config) (store.S3API, func(context.Context) (string, error), error) {
 		return h.s3, func(context.Context) (string, error) { return testCaller, nil }, nil
 	}
 	h.presign = &stubPresigner{}
 	h.opts.NewPresigner = func(context.Context, *config.Config) (delivery.Presigner, error) { return h.presign, nil }
-	return h
 }
 
 // leftovers returns cvpnctl temp folders still in TMPDIR.
