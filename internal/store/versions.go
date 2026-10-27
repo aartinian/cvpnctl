@@ -56,3 +56,18 @@ func Download(ctx context.Context, client S3API, sc config.StoreConfig, version 
 	defer func() { _ = out.Body.Close() }()
 	return io.ReadAll(io.LimitReader(out.Body, maxArchiveSize+1))
 }
+
+// Current returns the current archive version, or ok=false if there is none.
+func Current(ctx context.Context, client S3API, sc config.StoreConfig) (v Version, ok bool, err error) {
+	head, err := client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(archiveKey))})
+	if IsNotFound(err) {
+		return Version{}, false, nil
+	}
+	if err != nil {
+		return Version{}, false, fmt.Errorf("store: read the current version: %w", err)
+	}
+	return Version{
+		ID: aws.ToString(head.VersionId), Modified: aws.ToTime(head.LastModified), Size: aws.ToInt64(head.ContentLength),
+		Current: true, Writer: head.Metadata["cvpnctl-arn"],
+	}, true, nil
+}
