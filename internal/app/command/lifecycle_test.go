@@ -119,12 +119,13 @@ func (f *fakeCloud) ImportCRL(_ context.Context, crlFile string) error {
 }
 
 type harness struct {
-	t     *testing.T
-	opts  *Options
-	cloud *fakeCloud
-	dir   string
-	pki   string
-	s3    *storetest.FakeS3 // non-nil in S3 mode
+	t       *testing.T
+	opts    *Options
+	cloud   *fakeCloud
+	dir     string
+	pki     string
+	s3      *storetest.FakeS3 // non-nil in S3 mode
+	presign *stubPresigner
 }
 
 // pkiDir returns the PKI as it currently is: the local directory, or in S3
@@ -234,8 +235,8 @@ func findEasyRSA(t *testing.T) string {
 func (h *harness) certsDir() string   { return filepath.Join(h.dir, "certs") }
 func (h *harness) clientsDir() string { return filepath.Join(h.dir, "clients") }
 
-func (h *harness) create(user string) error { return runCreate(context.Background(), h.opts, user) }
-func (h *harness) renew(user string) error  { return runRenew(context.Background(), h.opts, user) }
+func (h *harness) create(user string) error { return runCreate(context.Background(), h.opts, user, 0) }
+func (h *harness) renew(user string) error  { return runRenew(context.Background(), h.opts, user, 0) }
 func (h *harness) revoke(user string) error {
 	return runRevoke(context.Background(), h.opts, user, true)
 }

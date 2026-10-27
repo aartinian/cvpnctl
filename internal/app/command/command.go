@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/delivery"
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
 	"github.com/aartinian/cvpnctl/internal/ovpn"
 	"github.com/aartinian/cvpnctl/internal/provider"
@@ -33,6 +34,9 @@ type Options struct {
 	// NewS3 returns the S3 client for S3 mode, and a lookup of the caller's
 	// IAM ARN, which is only called by commands that take the lock.
 	NewS3 func(context.Context, *config.Config) (store.S3API, func(context.Context) (string, error), error)
+
+	// NewPresigner signs the .ovpn download links in S3 mode.
+	NewPresigner func(context.Context, *config.Config) (delivery.Presigner, error)
 }
 
 // env is everything a lifecycle command works with.
@@ -43,6 +47,8 @@ type env struct {
 	pki   *easyrsa.Client
 	cloud provider.CertStore
 	ovpn  *ovpn.Generator
+
+	deliver *delivery.Deliverer // nil in local mode
 }
 
 // loadConfig loads the config and warns about config files it overrides:
@@ -75,44 +81,115 @@ func (o *Options) load(ctx context.Context, mode store.Mode, command string) (*e
 	if err != nil {
 		return nil, err
 	}
-	ws, err := o.openWorkspace(ctx, cfg, mode, command)
+	e, err := o.newEnv(ctx, cfg, mode, command)
 	if err != nil {
 		return nil, err
 	}
-	users, err := state.Load(ws.StateDir())
-	if err != nil {
-		_ = ws.Close(ctx)
-		return nil, err
-	}
-	return &env{
-		cfg:   cfg,
-		ws:    ws,
-		users: users,
-		pki:   easyrsa.New(&config.EasyRSAConfig{Path: cfg.EasyRSA.Path, PKIDir: ws.PKIDir()}, o.Verbose),
-		cloud: cloud,
-		ovpn:  ovpn.New(&config.OVPNConfig{Template: ws.TemplatePath(), OutputDir: ws.OutDir()}),
-	}, nil
+	e.cloud = cloud
+	return e, nil
 }
 
-// openWorkspace opens the local directories, or in S3 mode the store.
-func (o *Options) openWorkspace(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (store.Workspace, error) {
+// newEnv opens the workspace and everything that works in it, without a
+// provider: list and link need none.
+func (o *Options) newEnv(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (*env, error) {
+	ws, client, err := o.openWorkspace(ctx, cfg, mode, command)
+	if err != nil {
+		return nil, err
+	}
+	e := &env{
+		cfg:  cfg,
+		ws:   ws,
+		pki:  easyrsa.New(&config.EasyRSAConfig{Path: cfg.EasyRSA.Path, PKIDir: ws.PKIDir()}, o.Verbose),
+		ovpn: ovpn.New(&config.OVPNConfig{Template: ws.TemplatePath(), OutputDir: ws.OutDir()}),
+	}
+	if e.users, err = state.Load(ws.StateDir()); err != nil {
+		e.close()
+		return nil, err
+	}
+	if cfg.S3Mode() {
+		if o.NewPresigner == nil {
+			e.close()
+			return nil, errors.New("S3 mode is not available in this build")
+		}
+		p, err := o.NewPresigner(ctx, cfg)
+		if err != nil {
+			e.close()
+			return nil, err
+		}
+		e.deliver = delivery.New(client, p, *cfg.Store)
+	}
+	return e, nil
+}
+
+// openWorkspace opens the local directories, or in S3 mode the store, and
+// returns the S3 client it uses (nil locally).
+func (o *Options) openWorkspace(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (store.Workspace, store.S3API, error) {
 	if !cfg.S3Mode() {
-		return store.Open(ctx, cfg, mode, store.Deps{})
+		ws, err := store.Open(ctx, cfg, mode, store.Deps{})
+		return ws, nil, err
 	}
 	if o.NewS3 == nil {
-		return nil, errors.New("S3 mode is not available in this build")
+		return nil, nil, errors.New("S3 mode is not available in this build")
 	}
 	client, caller, err := o.NewS3(ctx, cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	d := store.Deps{S3: client, Command: command}
 	if mode == store.Write {
 		if d.Caller, err = caller(ctx); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return store.Open(ctx, cfg, mode, d)
+	ws, err := store.Open(ctx, cfg, mode, d)
+	return ws, client, err
+}
+
+// linkHours resolves --link-hours: 0 means the configured default. Links only
+// exist in S3 mode.
+func linkHours(cfg *config.Config, flag int) (int, error) {
+	if !cfg.S3Mode() {
+		if flag != 0 {
+			return 0, errors.New("--link-hours requires `store` in the config")
+		}
+		return 0, nil
+	}
+	hours := flag
+	if hours == 0 {
+		hours = cfg.Store.LinkHours
+	}
+	if hours < 1 || hours > delivery.MaxHours {
+		return 0, fmt.Errorf("link_hours must be 1–%d, got %d", delivery.MaxHours, hours)
+	}
+	return hours, nil
+}
+
+// publish uploads user's rendered .ovpn and prints the link.
+func (e *env) publish(ctx context.Context, user string, hours int) (string, error) {
+	data, err := os.ReadFile(e.ovpn.Path(user))
+	if err != nil {
+		return "", err
+	}
+	var url string
+	err = step("uploading the .ovpn", ".ovpn uploaded", func() (string, error) {
+		u, expires, err := e.deliver.Publish(ctx, user, data, hours)
+		if err != nil {
+			return "", err
+		}
+		url = u
+		return "link valid until " + expires.Local().Format("2006-01-02 15:04"), nil
+	})
+	return url, err
+}
+
+// sendLink prints the closing lines that hand a link to the admin. note, if
+// set, is a sentence put first, e.g. "The previous link no longer works."
+func sendLink(user, url, note string) {
+	if note != "" {
+		note += " "
+	}
+	ui.Done("%sSend this link to %s directly; it contains their private key:", note, user)
+	fmt.Println(url)
 }
 
 // save records the state and checkpoints the workspace. Locally that writes
@@ -275,9 +352,16 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 	}
 
 	var ovpnPath string
-	if err := step("writing the .ovpn", ".ovpn written", func() (string, error) {
+	done := ".ovpn written"
+	if e.ws.Remote() {
+		done = ".ovpn rendered" // into the temp folder; delivered by link
+	}
+	if err := step("writing the .ovpn", done, func() (string, error) {
 		var err error
 		ovpnPath, err = e.ovpn.Generate(user, files)
+		if e.ws.Remote() {
+			return "", err
+		}
 		return ui.Path(ovpnPath), err
 	}); err != nil {
 		return nil, err

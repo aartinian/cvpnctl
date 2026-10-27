@@ -37,7 +37,7 @@ func runList(opts *Options) error {
 	if err != nil {
 		return err
 	}
-	ws, err := opts.openWorkspace(ctx, cfg, store.Read, "list")
+	ws, _, err := opts.openWorkspace(ctx, cfg, store.Read, "list")
 	if err != nil {
 		return err
 	}
