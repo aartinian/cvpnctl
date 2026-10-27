@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -28,10 +29,11 @@ func runCreate(ctx context.Context, opts *Options, user string) error {
 	if err := validateUser(user); err != nil {
 		return err
 	}
-	e, err := opts.load(ctx)
+	e, err := opts.load(ctx, store.Write, "create "+user)
 	if err != nil {
 		return err
 	}
+	defer e.close()
 
 	if _, ok := e.users.Get(user); ok {
 		return fmt.Errorf("user %q already exists; use 'cvpnctl renew' to reissue their certificate", user)
@@ -46,6 +48,11 @@ func runCreate(ctx context.Context, opts *Options, user string) error {
 		return err
 	}
 
+	e.saved()
+	if e.ws.Remote() {
+		ui.Done("Certificate created for %s.", user)
+		return nil
+	}
 	ui.Done("Send %s to %s securely.", ui.Path(iss.ovpnPath), user)
 	return nil
 }

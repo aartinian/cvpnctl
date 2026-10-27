@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -8,8 +9,10 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
 	"github.com/aartinian/cvpnctl/internal/state"
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -27,13 +30,23 @@ func NewListCmd(opts *Options) *cobra.Command {
 }
 
 // runList reads only the config, the state file, and the PKI; it needs no
-// cloud credentials.
+// provider credentials (in S3 mode, only read access to the store).
 func runList(opts *Options) error {
+	ctx := context.Background()
 	cfg, err := opts.loadConfig()
 	if err != nil {
 		return err
 	}
-	users, err := state.Load(cfg.Certs.OutputDir)
+	ws, err := opts.openWorkspace(ctx, cfg, store.Read, "list")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := ws.Close(ctx); err != nil {
+			ui.Warn("%v", err)
+		}
+	}()
+	users, err := state.Load(ws.StateDir())
 	if err != nil {
 		return err
 	}
@@ -44,7 +57,7 @@ func runList(opts *Options) error {
 		return nil
 	}
 
-	pki := easyrsa.New(&cfg.EasyRSA, false)
+	pki := easyrsa.New(&config.EasyRSAConfig{Path: cfg.EasyRSA.Path, PKIDir: ws.PKIDir()}, false)
 	now := time.Now()
 	// tabwriter buffers until Flush, which reports any write error, so the
 	// individual row writes need no checks of their own.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -53,10 +54,11 @@ type row struct {
 }
 
 func runStatus(ctx context.Context, opts *Options, now time.Time) error {
-	e, err := opts.load(ctx)
+	e, err := opts.load(ctx, store.Read, "status")
 	if err != nil {
 		return err
 	}
+	defer e.close()
 
 	version, err := e.pki.Version()
 	if err != nil {

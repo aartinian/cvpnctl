@@ -21,6 +21,8 @@ import (
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/provider"
 	"github.com/aartinian/cvpnctl/internal/state"
+	"github.com/aartinian/cvpnctl/internal/store"
+	"github.com/aartinian/cvpnctl/internal/store/storetest"
 )
 
 // fakeCloud records what the commands send to the provider.
@@ -36,6 +38,11 @@ type fakeCloud struct {
 	// currently holds, as last pushed or as set by a test.
 	endpointCerts map[string]time.Time
 	crlPEM        []byte
+
+	// Hooks for S3-mode tests: afterImport runs right after a successful
+	// ImportCert; onPush gets the serials of every CRL being imported.
+	afterImport func()
+	onPush      func(revoked map[string]bool)
 }
 
 const (
@@ -72,6 +79,9 @@ func (f *fakeCloud) ImportCert(_ context.Context, certFile, _, _ string) (string
 	f.nextID++
 	id := fmt.Sprintf("cert-%d", f.nextID)
 	f.certs[id] = cert.SerialNumber.Text(16)
+	if f.afterImport != nil {
+		f.afterImport()
+	}
 	return id, nil
 }
 
@@ -102,6 +112,9 @@ func (f *fakeCloud) ImportCRL(_ context.Context, crlFile string) error {
 		f.revoked[e.SerialNumber.Text(16)] = true
 	}
 	f.crlPushes++
+	if f.onPush != nil {
+		f.onPush(f.revoked)
+	}
 	return nil
 }
 
@@ -111,6 +124,39 @@ type harness struct {
 	cloud *fakeCloud
 	dir   string
 	pki   string
+	s3    *storetest.FakeS3 // non-nil in S3 mode
+}
+
+// pkiDir returns the PKI as it currently is: the local directory, or in S3
+// mode a fresh unpacked copy of the archive in the bucket.
+func (h *harness) pkiDir() string {
+	h.t.Helper()
+	if h.s3 == nil {
+		return h.pki
+	}
+	return filepath.Join(h.storedCopy(), "pki")
+}
+
+// stateDir is like pkiDir, for cvpnctl's state file.
+func (h *harness) stateDir() string {
+	h.t.Helper()
+	if h.s3 == nil {
+		return h.certsDir()
+	}
+	return filepath.Join(h.storedCopy(), "state")
+}
+
+func (h *harness) storedCopy() string {
+	h.t.Helper()
+	data, ok := h.s3.Object("cvpnctl/pki.tar.gz")
+	if !ok {
+		h.t.Fatal("no archive in the bucket")
+	}
+	dir := h.t.TempDir()
+	if err := store.Unpack(data, dir); err != nil {
+		h.t.Fatal(err)
+	}
+	return dir
 }
 
 func newHarness(t *testing.T) *harness {
@@ -204,7 +250,7 @@ func (h *harness) must(err error) {
 // serial returns the serial of user's currently issued certificate.
 func (h *harness) serial(user string) string {
 	h.t.Helper()
-	cert, err := readCert(filepath.Join(h.pki, "issued", user+".crt"))
+	cert, err := readCert(filepath.Join(h.pkiDir(), "issued", user+".crt"))
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -213,7 +259,7 @@ func (h *harness) serial(user string) string {
 
 func (h *harness) record(user string) (state.UserRecord, bool) {
 	h.t.Helper()
-	s, err := state.Load(h.certsDir())
+	s, err := state.Load(h.stateDir())
 	if err != nil {
 		h.t.Fatal(err)
 	}
