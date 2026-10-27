@@ -18,6 +18,9 @@ type Config struct {
 	Certs    CertsConfig   `mapstructure:"certs"`
 	AWS      AWSConfig     `mapstructure:"aws"`
 	OVPN     OVPNConfig    `mapstructure:"ovpn"`
+	// Store, if set, keeps the PKI, the state and the template in S3 instead
+	// of local directories ("S3 mode"). Nil means local mode.
+	Store *StoreConfig `mapstructure:"store"`
 
 	// Path is the absolute path of the file this config was loaded from.
 	Path string `mapstructure:"-"`
@@ -48,6 +51,27 @@ type AWSConfig struct {
 type OVPNConfig struct {
 	Template  string `mapstructure:"template"`
 	OutputDir string `mapstructure:"output_dir"`
+}
+
+// StoreConfig locates the shared PKI in S3.
+type StoreConfig struct {
+	Bucket    string `mapstructure:"bucket"`
+	Prefix    string `mapstructure:"prefix"`     // optional; normalised to end with "/"
+	KMSKeyID  string `mapstructure:"kms_key_id"` // key ID, ARN or alias
+	LinkHours int    `mapstructure:"link_hours"` // default validity of .ovpn links, 1–168
+}
+
+// DefaultLinkHours is how long a .ovpn link is valid unless configured.
+const DefaultLinkHours = 24
+
+// S3Mode reports whether the PKI lives in S3 rather than in local directories.
+func (c *Config) S3Mode() bool {
+	return c.Store != nil
+}
+
+// Key returns the S3 object key for name under the configured prefix.
+func (s StoreConfig) Key(name string) string {
+	return s.Prefix + name
 }
 
 // Load reads, expands, and validates the configuration file. Without an
@@ -86,6 +110,14 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Provider == "" {
 		cfg.Provider = "aws"
+	}
+	if st := cfg.Store; st != nil {
+		if st.Prefix != "" && !strings.HasSuffix(st.Prefix, "/") {
+			st.Prefix += "/"
+		}
+		if st.LinkHours == 0 {
+			st.LinkHours = DefaultLinkHours
+		}
 	}
 
 	if err := expandPaths(&cfg); err != nil {
@@ -181,19 +213,34 @@ func expandPaths(cfg *Config) error {
 // command depends on is checked here, before it makes any change, so a typo in
 // the config can never leave a command half-finished.
 func validate(cfg *Config) error {
-	required := []struct {
+	if cfg.EasyRSA.Path == "" {
+		return errors.New("config: easyrsa.path is required")
+	}
+	local := []struct {
 		val  string
 		name string
 	}{
-		{cfg.EasyRSA.Path, "easyrsa.path"},
 		{cfg.EasyRSA.PKIDir, "easyrsa.pki_dir"},
 		{cfg.Certs.OutputDir, "certs.output_dir"},
 		{cfg.OVPN.Template, "ovpn.template"},
 		{cfg.OVPN.OutputDir, "ovpn.output_dir"},
 	}
-	for _, r := range required {
-		if r.val == "" {
-			return fmt.Errorf("config: %s is required", r.name)
+	if cfg.S3Mode() {
+		// In S3 mode these live in the store. Refusing them means no local
+		// path can quietly be used instead of the shared PKI.
+		for _, l := range local {
+			if l.val != "" {
+				return fmt.Errorf("config: %s is not allowed with store (the PKI, state and template live in S3)", l.name)
+			}
+		}
+		if err := validateStore(cfg.Store); err != nil {
+			return err
+		}
+	} else {
+		for _, l := range local {
+			if l.val == "" {
+				return fmt.Errorf("config: %s is required", l.name)
+			}
 		}
 	}
 
@@ -212,10 +259,25 @@ func validate(cfg *Config) error {
 	if err := requireFile(filepath.Join(cfg.EasyRSA.Path, "easyrsa"), "easyrsa script"); err != nil {
 		return err
 	}
+	if cfg.S3Mode() {
+		return nil // the CA and template are checked once the store is read
+	}
 	if err := requireFile(filepath.Join(cfg.EasyRSA.PKIDir, "ca.crt"), "CA certificate (is easyrsa.pki_dir an initialised PKI?)"); err != nil {
 		return err
 	}
 	return requireFile(cfg.OVPN.Template, "ovpn template")
+}
+
+func validateStore(st *StoreConfig) error {
+	switch {
+	case st.Bucket == "":
+		return errors.New("config: store.bucket is required")
+	case st.KMSKeyID == "":
+		return errors.New("config: store.kms_key_id is required")
+	case st.LinkHours < 1 || st.LinkHours > 168:
+		return fmt.Errorf("config: store.link_hours must be 1–168, got %d", st.LinkHours)
+	}
+	return nil
 }
 
 func requireFile(path, what string) error {
