@@ -19,20 +19,26 @@ import (
 	"github.com/aartinian/cvpnctl/internal/ovpn"
 	"github.com/aartinian/cvpnctl/internal/provider"
 	"github.com/aartinian/cvpnctl/internal/state"
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 )
 
-// Options is shared by all subcommands. NewProvider is a field rather than a
-// direct call so tests can substitute a fake certificate store.
+// Options is shared by all subcommands. NewProvider and NewS3 are fields
+// rather than direct calls so tests can substitute fakes.
 type Options struct {
 	ConfigFile  string
 	Verbose     bool // show EasyRSA's own output as it runs
 	NewProvider func(context.Context, *config.Config) (provider.CertStore, error)
+
+	// NewS3 returns the S3 client for S3 mode, and a lookup of the caller's
+	// IAM ARN, which is only called by commands that take the lock.
+	NewS3 func(context.Context, *config.Config) (store.S3API, func(context.Context) (string, error), error)
 }
 
 // env is everything a lifecycle command works with.
 type env struct {
 	cfg   *config.Config
+	ws    store.Workspace
 	users *state.Store
 	pki   *easyrsa.Client
 	cloud provider.CertStore
@@ -53,30 +59,94 @@ func (o *Options) loadConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
-func (o *Options) load(ctx context.Context) (*env, error) {
+// load prepares a lifecycle command. Everything that can fail without side
+// effects (config, EasyRSA version, AWS credentials) is checked before the
+// workspace is opened, so a failure there never holds the lock. In S3 mode a
+// Write workspace takes the lock; the caller must always defer e.close().
+func (o *Options) load(ctx context.Context, mode store.Mode, command string) (*env, error) {
 	cfg, err := o.loadConfig()
 	if err != nil {
 		return nil, err
 	}
-	pki := easyrsa.New(&cfg.EasyRSA, o.Verbose)
-	if err := pki.CheckVersion(); err != nil {
-		return nil, err
-	}
-	users, err := state.Load(cfg.Certs.OutputDir)
-	if err != nil {
+	if err := easyrsa.New(&cfg.EasyRSA, o.Verbose).CheckVersion(); err != nil {
 		return nil, err
 	}
 	cloud, err := o.NewProvider(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
+	ws, err := o.openWorkspace(ctx, cfg, mode, command)
+	if err != nil {
+		return nil, err
+	}
+	users, err := state.Load(ws.StateDir())
+	if err != nil {
+		_ = ws.Close(ctx)
+		return nil, err
+	}
 	return &env{
 		cfg:   cfg,
+		ws:    ws,
 		users: users,
-		pki:   pki,
+		pki:   easyrsa.New(&config.EasyRSAConfig{Path: cfg.EasyRSA.Path, PKIDir: ws.PKIDir()}, o.Verbose),
 		cloud: cloud,
-		ovpn:  ovpn.New(&cfg.OVPN),
+		ovpn:  ovpn.New(&config.OVPNConfig{Template: ws.TemplatePath(), OutputDir: ws.OutDir()}),
 	}, nil
+}
+
+// openWorkspace opens the local directories, or in S3 mode the store.
+func (o *Options) openWorkspace(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (store.Workspace, error) {
+	if !cfg.S3Mode() {
+		return store.Open(ctx, cfg, mode, store.Deps{})
+	}
+	if o.NewS3 == nil {
+		return nil, errors.New("S3 mode is not available in this build")
+	}
+	client, caller, err := o.NewS3(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	d := store.Deps{S3: client, Command: command}
+	if mode == store.Write {
+		if d.Caller, err = caller(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return store.Open(ctx, cfg, mode, d)
+}
+
+// save records the state and checkpoints the workspace. Locally that writes
+// the state file; in S3 mode it also uploads the archive. Commands call it
+// wherever a change must be durable before the next step: after an ACM
+// import is recorded, and after a local revocation, before the CRL is pushed.
+func (e *env) save(ctx context.Context) error {
+	if err := e.users.Save(); err != nil {
+		return err
+	}
+	return e.ws.Checkpoint(ctx)
+}
+
+// saved prints where an S3-mode command's changes ended up.
+func (e *env) saved() {
+	if e.ws.Remote() {
+		ui.OK("saved to S3", "version "+shortVersion(e.ws.Version()))
+	}
+}
+
+// close releases the workspace: in S3 mode it deletes the temp folder and
+// releases the lock. Problems are only warned about, because the command's
+// own result is already decided.
+func (e *env) close() {
+	if err := e.ws.Close(context.Background()); err != nil {
+		ui.Warn("%v", err)
+	}
+}
+
+func shortVersion(v string) string {
+	if len(v) > 8 {
+		return v[:8]
+	}
+	return v
 }
 
 // issued describes a freshly issued certificate.
@@ -139,13 +209,27 @@ func (e *env) crlDetail() string {
 // revoking, and the command can be re-run straight away.
 func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 	recorded := false
+	var id string // set once the certificate is imported
 	defer func() {
-		if err != nil && !recorded {
-			if rmErr := e.pki.RemoveCertFiles(user); rmErr != nil {
-				err = errors.Join(err, fmt.Errorf("cleaning up after failure: %w", rmErr))
-			} else {
-				ui.Note("removed the unfinished certificate from the PKI; the command can simply be run again")
-			}
+		if err == nil || recorded {
+			return
+		}
+		if rmErr := e.pki.RemoveCertFiles(user); rmErr != nil {
+			err = errors.Join(err, fmt.Errorf("cleaning up after failure: %w", rmErr))
+		} else {
+			ui.Note("removed the unfinished certificate from the PKI; the command can simply be run again")
+		}
+		if id == "" {
+			return
+		}
+		// Imported but not recorded: delete it from the provider again, so
+		// the provider never holds a certificate the state doesn't know.
+		delCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if delErr := e.cloud.DeleteCert(delCtx, id); delErr != nil {
+			err = errors.Join(err, fmt.Errorf("certificate %s was imported but not recorded, and deleting it failed (%w); delete it from the provider by hand", id, delErr))
+		} else {
+			ui.Note("deleted the unrecorded certificate from the provider")
 		}
 	}()
 
@@ -163,23 +247,26 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		return nil, err
 	}
 
-	if err := step("saving the files", "files saved", func() (string, error) {
-		dir, err := e.pki.CopyToUserDir(user, e.cfg.Certs.OutputDir)
-		return ui.Path(dir) + "/", err
-	}); err != nil {
-		return nil, err
+	// Per-user copies only exist in local mode: S3 mode leaves nothing on disk.
+	if !e.ws.Remote() {
+		if err := step("saving the files", "files saved", func() (string, error) {
+			dir, err := e.pki.CopyToUserDir(user, e.cfg.Certs.OutputDir)
+			return ui.Path(dir) + "/", err
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	files := e.pki.Files(user)
-	var id string
 	if err := step("importing to ACM", "imported to ACM", func() (string, error) {
 		var err error
 		if id, err = e.cloud.ImportCert(ctx, files.Cert, files.Key, files.CA); err != nil {
+			id = ""
 			return "", err
 		}
 		e.users.Set(user, id)
-		if err := e.users.Save(); err != nil {
-			return "", fmt.Errorf("%w (certificate %s was imported but not recorded; delete it from the provider by hand)", err, id)
+		if err := e.save(ctx); err != nil {
+			return "", err
 		}
 		recorded = true
 		return shortID(id), nil
@@ -202,19 +289,28 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 // revokeLocal revokes user's certificate in the PKI and regenerates the CRL,
 // printing done on success. If the PKI has no issued certificate for user, an
 // earlier interrupted run already revoked it, so only the CRL is regenerated.
-func (e *env) revokeLocal(user, done string) error {
+//
+// The revocation is saved (checkpointed) before it returns, so that the CRL
+// push that follows never gets ahead of the stored PKI.
+func (e *env) revokeLocal(ctx context.Context, user, done string) error {
 	if !e.pki.HasCert(user) {
 		ui.Warn("no issued certificate for %q in the PKI; assuming an earlier run already revoked it", user)
 		e.passphraseHint("regenerating the CRL", 1)
-		return step("regenerating the CRL", "CRL regenerated", func() (string, error) {
+		if err := step("regenerating the CRL", "CRL regenerated", func() (string, error) {
 			return "", e.pki.GenCRL()
-		})
+		}); err != nil {
+			return err
+		}
+		return e.save(ctx)
 	}
 	// Revoking asks twice: once to revoke, once to regenerate the CRL.
 	e.passphraseHint("revoking in the PKI", 2)
-	return step("revoking in the PKI", done, func() (string, error) {
+	if err := step("revoking in the PKI", done, func() (string, error) {
 		return "in the PKI", e.pki.Revoke(user)
-	})
+	}); err != nil {
+		return err
+	}
+	return e.save(ctx)
 }
 
 // pushCRL uploads the current CRL to the VPN endpoint.

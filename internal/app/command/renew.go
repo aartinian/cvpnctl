@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -35,10 +36,11 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 	if err := validateUser(user); err != nil {
 		return err
 	}
-	e, err := opts.load(ctx)
+	e, err := opts.load(ctx, store.Write, "renew "+user)
 	if err != nil {
 		return err
 	}
+	defer e.close()
 
 	record, ok := e.users.Get(user)
 	if !ok {
@@ -48,7 +50,7 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 
 	ui.Title("Renewing %s", user)
 
-	if err := e.revokeLocal(user, "old certificate revoked"); err != nil {
+	if err := e.revokeLocal(ctx, user, "old certificate revoked"); err != nil {
 		return err
 	}
 
@@ -68,6 +70,11 @@ func runRenew(ctx context.Context, opts *Options, user string) error {
 		}
 	}
 
+	e.saved()
+	if e.ws.Remote() {
+		ui.Done("Certificate renewed for %s; the old one no longer works.", user)
+		return nil
+	}
 	ui.Done("Send %s to %s securely; the old one no longer works.", ui.Path(iss.ovpnPath), user)
 	return nil
 }
