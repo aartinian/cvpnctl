@@ -41,11 +41,7 @@ func runList(opts *Options) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := ws.Close(ctx); err != nil {
-			ui.Warn("%v", err)
-		}
-	}()
+	defer closeWorkspace(ws)
 	users, err := state.Load(ws.StateDir())
 	if err != nil {
 		return err

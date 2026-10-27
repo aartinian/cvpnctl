@@ -38,6 +38,7 @@ func Run(ctx context.Context, version string, args []string) error {
 		command.NewPushCRLCmd(opts),
 		command.NewStatusCmd(opts),
 		command.NewLinkCmd(opts),
+		command.NewTemplateCmd(opts),
 	)
 
 	root.SetArgs(args)
