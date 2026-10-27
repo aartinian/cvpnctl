@@ -12,7 +12,7 @@ import (
 
 // Run executes the CLI with args (without the program name).
 func Run(ctx context.Context, version string, args []string) error {
-	opts := &command.Options{NewProvider: provider.New}
+	opts := &command.Options{NewProvider: provider.New, NewS3: newS3, NewPresigner: newPresigner}
 
 	root := &cobra.Command{
 		Use:   "cvpnctl",
