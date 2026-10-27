@@ -131,3 +131,26 @@ func TestRevokedSerials(t *testing.T) {
 		t.Errorf("RevokedSerials() = %v, want CD34 and EF56", got)
 	}
 }
+
+func TestIndex(t *testing.T) {
+	dir := t.TempDir()
+	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=alice\n" +
+		"R\t270420223927Z\t261013150000Z\t0cd34\tunknown\t/CN=bob\n" +
+		"R\t250120210018Z\t261013150000Z,keyCompromise\tEF56\tunknown\t/C=CH/CN=carol/O=x\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.txt"), []byte(index), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(&config.EasyRSAConfig{PKIDir: dir}, false).Index()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []IndexEntry{{"V", "AB12", "alice"}, {"R", "CD34", "bob"}, {"R", "EF56", "carol"}}
+	if len(got) != len(want) {
+		t.Fatalf("Index() = %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("entry %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
