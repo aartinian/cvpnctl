@@ -61,6 +61,10 @@ type Deps struct {
 // ErrStoreEmpty means the bucket holds no PKI yet.
 var ErrStoreEmpty = errors.New("store is empty; run cvpnctl store migrate")
 
+// ErrStoreDeleted means the current archive was deleted, but the bucket keeps
+// its earlier versions.
+var ErrStoreDeleted = errors.New("the stored PKI was deleted, but its earlier versions remain; list them with cvpnctl store versions and restore one with cvpnctl store restore")
+
 // ErrStoreChanged means someone else wrote the archive since this command
 // read it, so its upload was refused and nothing after it may run.
 var ErrStoreChanged = errors.New("the stored PKI changed since this command read it (was the lock forced?); nothing after this point ran")
