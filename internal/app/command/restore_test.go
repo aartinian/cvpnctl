@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aartinian/cvpnctl/internal/config"
+
 	"github.com/aartinian/cvpnctl/internal/store"
 )
 
@@ -171,5 +173,25 @@ func TestRestoreKeepsKnownCerts(t *testing.T) {
 	}
 	if _, err := restore(h, withAlice, true); err != nil {
 		t.Fatalf("restoring a version with the same certificates: %v", err)
+	}
+}
+
+// If the restore's target folder lost its PKI (e.g. swept while waiting at
+// the prompt), nothing is replaced: never upload an empty PKI.
+func TestReplaceWorkspaceRequiresPKI(t *testing.T) {
+	h := newHarnessS3(t)
+	cfg, _ := config.Load(h.opts.ConfigFile)
+	ws, err := store.Open(context.Background(), cfg, store.Write, store.Deps{S3: h.s3, Caller: testCaller, Command: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close(context.Background())
+
+	empty := t.TempDir() // a target without pki/
+	if err := replaceWorkspace(ws, empty); err == nil || !strings.Contains(err.Error(), "ca.crt") {
+		t.Fatalf("err = %v, want a missing ca.crt error", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws.PKIDir(), "ca.crt")); err != nil {
+		t.Errorf("the workspace's PKI was touched: %v", err)
 	}
 }

@@ -422,3 +422,25 @@ func TestWorkspaceRecordsPID(t *testing.T) {
 		t.Errorf(".pid = %q, %v", b, err)
 	}
 }
+
+// Every cvpnctl-* folder records its process, so the sweep never removes one
+// that is still in use, however old.
+func TestTempDirRecordsPID(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	dir, err := TempDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(filepath.Base(dir), "cvpnctl-") {
+		t.Errorf("TempDir() = %s, want a cvpnctl-* folder", dir)
+	}
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Errorf("mode = %o, want 700", fi.Mode().Perm())
+	}
+	old := time.Now().Add(-3 * time.Hour)
+	os.Chtimes(dir, old, old)
+	Sweep(os.TempDir(), os.Getuid(), time.Hour)
+	if !exists(dir) {
+		t.Error("the sweep removed a folder of a running process")
+	}
+}

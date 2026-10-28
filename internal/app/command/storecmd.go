@@ -138,7 +138,7 @@ func runMigrate(ctx context.Context, opts *Options, from string) error {
 		return fmt.Errorf("%w (version %s); migrate never overwrites it", store.ErrStoreExists, version)
 	}
 
-	staging, err := os.MkdirTemp("", "cvpnctl-*")
+	staging, err := store.TempDir()
 	if err != nil {
 		return err
 	}
@@ -232,7 +232,7 @@ func copyFile(src, dst string) error {
 func checksums(dir string) (map[string][32]byte, error) {
 	sums := map[string][32]byte{}
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil || d.IsDir() || d.Name() == ".pid" && filepath.Dir(p) == dir {
 			return err
 		}
 		data, err := os.ReadFile(p)
@@ -249,7 +249,7 @@ func checksums(dir string) (map[string][32]byte, error) {
 // verifyArchive unpacks archive and checks every file against want, and that
 // the CA, the index and (if present) the CRL can be read.
 func verifyArchive(archive []byte, want map[string][32]byte) (int, error) {
-	dir, err := os.MkdirTemp("", "cvpnctl-*")
+	dir, err := store.TempDir()
 	if err != nil {
 		return 0, err
 	}

@@ -3,6 +3,7 @@ package command
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -188,5 +189,17 @@ func TestLinkHoursRange(t *testing.T) {
 	local := newHarness(t)
 	if err := runCreate(context.Background(), local.opts, "alice", 12); err == nil || !strings.Contains(err.Error(), "requires `store`") {
 		t.Errorf("--link-hours in local mode: err = %v", err)
+	}
+}
+
+// link takes the lock: otherwise a link running alongside a renew could
+// publish the revoked certificate over the new link.
+func TestLinkTakesLock(t *testing.T) {
+	h := newHarnessS3(t)
+	h.must(h.create("alice"))
+	h.holdLock(time.Minute)
+	var locked *store.LockedError
+	if err := runLink(context.Background(), h.opts, "alice", 0); !errors.As(err, &locked) {
+		t.Fatalf("link while the lock is held: err = %v, want *LockedError", err)
 	}
 }

@@ -33,8 +33,9 @@ stops working. Use it when a link expired or got lost.`,
 	return cmd
 }
 
-// runLink reads the store without taking the lock: it changes nothing in the
-// PKI and writes only the user's delivery file.
+// runLink takes the lock although it changes nothing in the PKI: otherwise a
+// link running alongside a renew of the same user could read the old
+// certificate and publish it over the renew's new link. It never checkpoints.
 func runLink(ctx context.Context, opts *Options, user string, hoursFlag int) error {
 	if err := validateUser(user); err != nil {
 		return err
@@ -50,7 +51,7 @@ func runLink(ctx context.Context, opts *Options, user string, hoursFlag int) err
 	if err != nil {
 		return err
 	}
-	e, err := opts.newEnv(ctx, cfg, store.Read, "link "+user)
+	e, err := opts.newEnv(ctx, cfg, store.Write, "link "+user)
 	if err != nil {
 		return err
 	}

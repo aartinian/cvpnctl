@@ -265,7 +265,7 @@ func unpackVersion(ctx context.Context, client store.S3API, sc config.StoreConfi
 	if err != nil {
 		return "", nil, err
 	}
-	dir, err := os.MkdirTemp("", "cvpnctl-*")
+	dir, err := store.TempDir()
 	if err != nil {
 		return "", nil, err
 	}
@@ -291,8 +291,12 @@ func readState(dir string) ([]string, map[string]bool, error) {
 }
 
 // replaceWorkspace swaps the workspace's PKI, state and template for those
-// unpacked in src.
+// unpacked in src. It checks src first and changes nothing if src has no
+// PKI, so an incomplete source can never turn into an empty stored PKI.
 func replaceWorkspace(ws store.Workspace, src string) error {
+	if _, err := os.Stat(filepath.Join(src, "pki", "ca.crt")); err != nil {
+		return fmt.Errorf("the version to restore has no pki/ca.crt (%v); nothing was changed", err)
+	}
 	for _, pair := range []struct{ from, to string }{
 		{filepath.Join(src, "pki"), ws.PKIDir()},
 		{filepath.Join(src, "state"), ws.StateDir()},

@@ -63,14 +63,8 @@ func openRemote(ctx context.Context, sc config.StoreConfig, mode Mode, d Deps) (
 		}
 	}()
 
-	if r.root, err = os.MkdirTemp("", "cvpnctl-*"); err != nil {
-		return nil, fmt.Errorf("store: %w", err)
-	}
-	if err := os.Chmod(r.root, 0o700); err != nil {
-		return nil, fmt.Errorf("store: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(r.root, pidFile), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+	if r.root, err = TempDir(); err != nil {
+		return nil, err
 	}
 
 	out, err := d.S3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(archiveKey))})
@@ -99,6 +93,25 @@ func openRemote(ctx context.Context, sc config.StoreConfig, mode Mode, d Deps) (
 		}
 	}
 	return r, nil
+}
+
+// TempDir creates a private cvpnctl-* folder in the system temp directory
+// (mode 0700) that records this process in a .pid file, so that Sweep leaves
+// it alone for as long as the process runs. Every folder that may hold a copy
+// of the CA key is made with it; the caller removes it.
+func TempDir() (string, error) {
+	dir, err := os.MkdirTemp("", "cvpnctl-*")
+	if err != nil {
+		return "", fmt.Errorf("store: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err == nil {
+		err = os.WriteFile(filepath.Join(dir, pidFile), []byte(strconv.Itoa(os.Getpid())), 0o600)
+		if err == nil {
+			return dir, nil
+		}
+	}
+	_ = os.RemoveAll(dir)
+	return "", fmt.Errorf("store: prepare %s: %w", dir, err)
 }
 
 func (r *remote) PKIDir() string       { return filepath.Join(r.root, "pki") }
