@@ -10,6 +10,7 @@ import (
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 // Version is one stored state of the PKI.
@@ -24,12 +25,21 @@ type Version struct {
 // Versions lists the archive's versions, newest first.
 func Versions(ctx context.Context, client S3API, sc config.StoreConfig) ([]Version, error) {
 	key := sc.Key(archiveKey)
-	out, err := client.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(sc.Bucket), Prefix: aws.String(key)})
-	if err != nil {
-		return nil, fmt.Errorf("store: list versions: %w", err)
+	var all []types.ObjectVersion
+	in := &s3.ListObjectVersionsInput{Bucket: aws.String(sc.Bucket), Prefix: aws.String(key)}
+	for { // the SDK has no paginator for this call
+		out, err := client.ListObjectVersions(ctx, in)
+		if err != nil {
+			return nil, fmt.Errorf("store: list versions: %w", err)
+		}
+		all = append(all, out.Versions...)
+		if !aws.ToBool(out.IsTruncated) {
+			break
+		}
+		in.KeyMarker, in.VersionIdMarker = out.NextKeyMarker, out.NextVersionIdMarker
 	}
 	var vs []Version
-	for _, v := range out.Versions {
+	for _, v := range all {
 		if aws.ToString(v.Key) != key {
 			continue
 		}

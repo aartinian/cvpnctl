@@ -304,12 +304,31 @@ func (f *FakeS3) ListObjectsV2(_ context.Context, in *s3.ListObjectsV2Input, _ .
 func (f *FakeS3) ListObjectVersions(_ context.Context, in *s3.ListObjectVersionsInput, _ ...func(*s3.Options)) (*s3.ListObjectVersionsOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := &s3.ListObjectVersionsOutput{}
+	out := &s3.ListObjectVersionsOutput{IsTruncated: aws.Bool(false)}
+	// Like S3, one ordered stream of versions and delete markers, continued
+	// after (KeyMarker, VersionIdMarker), or after all of KeyMarker.
+	keyMarker, idMarker := aws.ToString(in.KeyMarker), aws.ToString(in.VersionIdMarker)
+	skipping := keyMarker != ""
+	n := 0
 	for _, key := range f.keys(aws.ToString(in.Prefix)) {
 		vs := f.objects[key]
 		for i := len(vs) - 1; i >= 0; i-- { // newest first, as S3 lists them
 			v := vs[i]
 			latest := i == len(vs)-1
+			if skipping {
+				if key > keyMarker || (key == keyMarker && idMarker != "" && v.id == idMarker) {
+					skipping = false
+				}
+				if key <= keyMarker {
+					continue
+				}
+			}
+			if n == f.pageSize() {
+				out.IsTruncated = aws.Bool(true)
+				return out, nil
+			}
+			n++
+			out.NextKeyMarker, out.NextVersionIdMarker = aws.String(key), aws.String(v.id)
 			if v.deleteMarker {
 				out.DeleteMarkers = append(out.DeleteMarkers, types.DeleteMarkerEntry{Key: aws.String(key), VersionId: aws.String(v.id), IsLatest: aws.Bool(latest), LastModified: aws.Time(v.modified)})
 				continue
