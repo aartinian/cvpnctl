@@ -38,6 +38,13 @@ type Workspace interface {
 	// it. Locally it does nothing, because the files are already on disk.
 	Checkpoint(ctx context.Context) error
 
+	// Verify checks that this command still holds the lock and that the
+	// archive is still the version it last read or wrote, i.e. that nobody
+	// forced the lock and wrote newer work since. Call it right before acting
+	// outside the store on the PKI's state, such as pushing a CRL. Locally it
+	// does nothing.
+	Verify(ctx context.Context) error
+
 	// Close deletes the temp folder and releases the lock. It works even if
 	// ctx is already cancelled (after Ctrl-C), and may be called more than once.
 	Close(ctx context.Context) error
@@ -86,4 +93,5 @@ func (l *local) Remote() bool                     { return false }
 func (l *local) Version() string                  { return "" }
 func (l *local) Damaged() error                   { return nil }
 func (l *local) Checkpoint(context.Context) error { return nil }
+func (l *local) Verify(context.Context) error     { return nil }
 func (l *local) Close(context.Context) error      { return nil }

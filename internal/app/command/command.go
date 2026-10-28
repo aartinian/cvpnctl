@@ -407,8 +407,16 @@ func (e *env) revokeLocal(ctx context.Context, user, done string) error {
 }
 
 // pushCRL uploads the current CRL to the VPN endpoint.
+//
+// It first checks that the lock is still ours and the store unchanged: after
+// a forced unlock, another admin may have revoked someone since, and our
+// older CRL would let that user back in. A force in the moment between the
+// check and the push is still possible, but no longer a whole command long.
 func (e *env) pushCRL(ctx context.Context) error {
 	return step("pushing the CRL", "CRL pushed", func() (string, error) {
+		if err := e.ws.Verify(ctx); err != nil {
+			return "", fmt.Errorf("the CRL was not pushed: %w; once nobody else is running cvpnctl, run cvpnctl push-crl", err)
+		}
 		if err := e.cloud.ImportCRL(ctx, e.pki.CRLPath()); err != nil {
 			return "", err
 		}

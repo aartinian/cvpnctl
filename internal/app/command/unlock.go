@@ -18,9 +18,12 @@ func NewUnlockCmd(opts *Options) *cobra.Command {
 		Use:   "unlock",
 		Short: "Remove a lock left behind by a crashed command (S3 mode)",
 		Long: `Show who holds the store's lock, and remove it after confirmation. Use it
-only when the command holding it has crashed or been killed. If that command
-is in fact still running, removing the lock is still safe: its next save fails
-instead of overwriting newer work.`,
+only when the command holding it has crashed or been killed.
+
+If that command is in fact still running, its next save fails instead of
+overwriting newer work, and it checks the lock again right before pushing a
+CRL. Whatever it was doing in that moment, such as importing a certificate to
+ACM or pushing a CRL, can still complete, so run cvpnctl status afterwards.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUnlock(cmd.Context(), opts, yes)
@@ -68,7 +71,7 @@ func runUnlock(ctx context.Context, opts *Options, yes bool) error {
 	if err := store.ForceUnlock(ctx, client, *cfg.Store); err != nil {
 		return err
 	}
-	ui.Done("Lock removed. If that command is still running, its next save will fail instead of overwriting newer work.")
+	ui.Done("Lock removed. If that command was still running, run cvpnctl status once it has stopped: what it was doing in that moment may have completed.")
 	return nil
 }
 

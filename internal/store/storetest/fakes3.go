@@ -49,6 +49,11 @@ type version struct {
 type FakeS3 struct {
 	Settings Settings
 
+	// AfterPut, if set, runs after each successful PutObject with its key,
+	// outside the fake's lock, so it may call the fake (e.g. to simulate
+	// another admin acting right after a checkpoint).
+	AfterPut func(key string)
+
 	mu        sync.Mutex
 	objects   map[string][]*version // oldest first
 	nextID    int
@@ -141,7 +146,15 @@ func (f *FakeS3) add(key string, v *version) *version {
 	return v
 }
 
-func (f *FakeS3) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+func (f *FakeS3) PutObject(ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	out, err := f.putObject(ctx, in, opts...)
+	if err == nil && f.AfterPut != nil {
+		f.AfterPut(aws.ToString(in.Key))
+	}
+	return out, err
+}
+
+func (f *FakeS3) putObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	key := aws.ToString(in.Key)

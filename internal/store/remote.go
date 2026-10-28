@@ -120,6 +120,24 @@ func TempDir() (string, error) {
 	return "", fmt.Errorf("store: prepare %s: %w", dir, err)
 }
 
+func (r *remote) Verify(ctx context.Context) error {
+	if r.lock != nil {
+		if err := r.lock.held(ctx); err != nil {
+			return err
+		}
+	}
+	out, err := r.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(r.sc.Bucket), Key: aws.String(r.sc.Key(archiveKey))})
+	switch {
+	case IsNotFound(err):
+		return ErrStoreChanged
+	case err != nil:
+		return fmt.Errorf("store: check the archive: %w", err)
+	case aws.ToString(out.ETag) != r.etag:
+		return ErrStoreChanged
+	}
+	return nil
+}
+
 // unpack extracts data into the workspace and checks it holds a PKI.
 func (r *remote) unpack(data []byte) error {
 	if err := Unpack(data, r.root); err != nil {
