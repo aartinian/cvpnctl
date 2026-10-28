@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/aartinian/cvpnctl/internal/store"
 )
@@ -103,7 +105,7 @@ func TestRestoreUnrevokeGuard(t *testing.T) {
 	archive, _ := h.s3.Object("cvpnctl/pki.tar.gz")
 
 	_, err := restore(h, before, true)
-	if err == nil || err.Error() != "--yes is not accepted when a restore would un-revoke certificates or lose track of valid ones" {
+	if err == nil || err.Error() != "--yes is not accepted when a restore would un-revoke certificates or lose track of valid ones, or when the current version is unusable" {
 		t.Fatalf("with --yes: err = %v", err)
 	}
 	// Without a terminal (or with stdin closed, as under go test) nobody can
@@ -152,7 +154,7 @@ func TestRestoreUnknownCertGuard(t *testing.T) {
 	archive, _ := h.s3.Object("cvpnctl/pki.tar.gz")
 
 	out, err := restore(h, before, true)
-	if err == nil || err.Error() != "--yes is not accepted when a restore would un-revoke certificates or lose track of valid ones" {
+	if err == nil || err.Error() != "--yes is not accepted when a restore would un-revoke certificates or lose track of valid ones, or when the current version is unusable" {
 		t.Fatalf("with --yes: err = %v\n%s", err, out)
 	}
 	if !strings.Contains(out, "judy") || !strings.Contains(out, "could never be revoked") {
@@ -193,5 +195,74 @@ func TestReplaceWorkspaceRequiresPKI(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(ws.PKIDir(), "ca.crt")); err != nil {
 		t.Errorf("the workspace's PKI was touched: %v", err)
+	}
+}
+
+// The current archive is corrupt, so no other command can open the store:
+// restore still runs, holds the lock, and treats the restore as dangerous,
+// because it can only compare the endpoint's CRL.
+func TestRestoreDamagedCurrent(t *testing.T) {
+	h := newHarnessS3(t)
+	h.must(h.create("alice"))
+	good := h.version()
+	h.must(h.revoke("alice")) // revoked and pushed: the endpoint knows
+	h.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader([]byte("garbage"))})
+
+	if err := h.create("bob"); err == nil || !strings.Contains(err.Error(), "store restore") {
+		t.Fatalf("create on a damaged store: err = %v, want a hint to restore", err)
+	}
+	if _, err := restore(h, good, true); err == nil || !strings.Contains(err.Error(), "--yes is not accepted") {
+		t.Fatalf("with --yes: err = %v", err)
+	}
+	out, err := restore(h, good, false)
+	if err == nil || (!strings.Contains(err.Error(), "not a terminal") && !strings.Contains(err.Error(), "aborted")) {
+		t.Fatalf("without --yes: err = %v", err)
+	}
+	for _, want := range []string{"current version is unusable", "alice", "connect again"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if got, _ := h.s3.Object("cvpnctl/pki.tar.gz"); string(got) != "garbage" {
+		t.Error("the archive changed although the restore was refused")
+	}
+	if _, held, _ := store.ReadLock(context.Background(), h.s3, storeCfg); held {
+		t.Error("the lock was left behind")
+	}
+}
+
+// What restore does once confirmed: a Recover workspace on a damaged archive
+// takes the good version and replaces exactly the damaged one.
+func TestRecoverWorkspaceReplacesDamaged(t *testing.T) {
+	h := newHarnessS3(t)
+	h.must(h.create("alice"))
+	good := h.version()
+	h.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader([]byte("garbage"))})
+
+	cfg, err := config.Load(h.opts.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := store.Open(context.Background(), cfg, store.Recover, store.Deps{S3: h.s3, Caller: testCaller, Command: "store restore"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close(context.Background())
+	if ws.Damaged() == nil {
+		t.Fatal("Damaged() = nil for a garbage archive")
+	}
+	target, cleanup, err := unpackVersion(context.Background(), h.s3, storeCfg, good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if err := replaceWorkspace(ws, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.Checkpoint(context.Background()); err != nil {
+		t.Fatalf("Checkpoint: %v", err)
+	}
+	if !h.exists(filepath.Join(h.storedCopy(), "pki", "issued", "alice.crt")) {
+		t.Error("the restored archive lacks alice")
 	}
 }

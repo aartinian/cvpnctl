@@ -42,13 +42,14 @@ type remote struct {
 	lock    *Lock  // nil in Read mode
 	etag    string // of the archive version last read or written
 	version string
+	damaged error // Recover mode only: why the archive could not be used
 	closed  bool
 }
 
 func openRemote(ctx context.Context, sc config.StoreConfig, mode Mode, d Deps) (_ *remote, err error) {
 	Sweep(os.TempDir(), os.Getuid(), staleAfter)
 	r := &remote{s3: d.S3, sc: sc, mode: mode, caller: d.Caller}
-	if mode == Write {
+	if mode != Read {
 		lock, err := Acquire(ctx, d.S3, sc, LockInfo{ARN: d.Caller, Host: d.Host, PID: os.Getpid(), Command: d.Command, Started: time.Now().UTC()})
 		if err != nil {
 			return nil, err
@@ -79,13 +80,18 @@ func openRemote(ctx context.Context, sc config.StoreConfig, mode Mode, d Deps) (
 	if err != nil {
 		return nil, fmt.Errorf("store: download the PKI: %w", err)
 	}
-	if err := Unpack(data, r.root); err != nil {
-		return nil, err
-	}
 	r.etag, r.version = aws.ToString(out.ETag), aws.ToString(out.VersionId)
-
-	if _, err := os.Stat(filepath.Join(r.PKIDir(), "ca.crt")); err != nil {
-		return nil, fmt.Errorf("store: the stored archive has no pki/ca.crt (version %s); restore a good version with cvpnctl store restore", r.version)
+	if bad := r.unpack(data); bad != nil {
+		if mode != Recover {
+			return nil, fmt.Errorf("%w (version %s); restore a good version with cvpnctl store restore", bad, r.version)
+		}
+		// Start from nothing, but keep the lock and the ETag, so that the
+		// restore replaces exactly this version and nothing newer.
+		r.damaged = bad
+		_ = os.RemoveAll(r.root)
+		if r.root, err = TempDir(); err != nil {
+			return nil, err
+		}
 	}
 	for _, dir := range []string{r.StateDir(), filepath.Dir(r.TemplatePath()), r.OutDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -114,12 +120,24 @@ func TempDir() (string, error) {
 	return "", fmt.Errorf("store: prepare %s: %w", dir, err)
 }
 
+// unpack extracts data into the workspace and checks it holds a PKI.
+func (r *remote) unpack(data []byte) error {
+	if err := Unpack(data, r.root); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(r.PKIDir(), "ca.crt")); err != nil {
+		return errors.New("store: the stored archive has no pki/ca.crt")
+	}
+	return nil
+}
+
 func (r *remote) PKIDir() string       { return filepath.Join(r.root, "pki") }
 func (r *remote) StateDir() string     { return filepath.Join(r.root, "state") }
 func (r *remote) TemplatePath() string { return filepath.Join(r.root, "template", "base.ovpn") }
 func (r *remote) OutDir() string       { return filepath.Join(r.root, "out") }
 func (r *remote) Remote() bool         { return true }
 func (r *remote) Version() string      { return r.version }
+func (r *remote) Damaged() error       { return r.damaged }
 
 // Checkpoint uploads the workspace as the new archive version, with If-Match
 // on the version this command last read or wrote, so it never overwrites
@@ -131,7 +149,7 @@ func (r *remote) Version() string      { return r.version }
 // done; otherwise it failed, and the caller must treat its changes as not
 // recorded.
 func (r *remote) Checkpoint(ctx context.Context) error {
-	if r.mode != Write {
+	if r.mode == Read {
 		return errors.New("store: checkpoint in a read-only workspace")
 	}
 	data, err := Pack(r.root)

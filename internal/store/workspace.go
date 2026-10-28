@@ -9,12 +9,15 @@ import (
 )
 
 // Mode says whether a command changes the PKI (Write: takes the lock and can
-// checkpoint) or only reads it (Read).
+// checkpoint) or only reads it (Read). Recover is Write for store restore: if
+// the current archive is unusable, it opens an empty workspace instead of
+// failing, and Damaged says why.
 type Mode int
 
 const (
 	Read Mode = iota
 	Write
+	Recover
 )
 
 // Workspace is where a command finds the PKI, the state and the template. In
@@ -28,6 +31,7 @@ type Workspace interface {
 	OutDir() string       // where .ovpn files are rendered
 	Remote() bool         // true in S3 mode
 	Version() string      // the S3 version last read or written; "" locally
+	Damaged() error       // in Recover mode, why the archive was unusable; else nil
 
 	// Checkpoint saves the workspace: in S3 mode it uploads the archive, but
 	// only if nobody else changed it since this command last read or wrote
@@ -80,5 +84,6 @@ func (l *local) TemplatePath() string             { return l.cfg.OVPN.Template }
 func (l *local) OutDir() string                   { return l.cfg.OVPN.OutputDir }
 func (l *local) Remote() bool                     { return false }
 func (l *local) Version() string                  { return "" }
+func (l *local) Damaged() error                   { return nil }
 func (l *local) Checkpoint(context.Context) error { return nil }
 func (l *local) Close(context.Context) error      { return nil }

@@ -316,6 +316,40 @@ func TestCheckpointUnknown(t *testing.T) {
 	}
 }
 
+// A garbage archive: Write refuses it with a hint to restore; Recover opens
+// an empty workspace under the lock, and its checkpoint replaces only the
+// damaged version.
+func TestOpenDamaged(t *testing.T) {
+	cfg, f := s3Env(t)
+	f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader([]byte("garbage"))})
+
+	if _, err := Open(context.Background(), cfg, Write, deps(f, "create alice")); err == nil || !strings.Contains(err.Error(), "store restore") {
+		t.Fatalf("Write: err = %v, want a hint to restore", err)
+	}
+	ws, err := Open(context.Background(), cfg, Recover, deps(f, "store restore"))
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	defer ws.Close(context.Background())
+	if ws.Damaged() == nil {
+		t.Error("Damaged() = nil")
+	}
+	if _, held, _ := ReadLock(context.Background(), f, testStore); !held {
+		t.Error("Recover does not hold the lock")
+	}
+	if entries, _ := os.ReadDir(ws.PKIDir()); len(entries) != 0 {
+		t.Errorf("PKI dir holds %d entries, want empty", len(entries))
+	}
+
+	// Someone writes in between (after a forced unlock): the restore must
+	// not overwrite it.
+	f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader([]byte("newer"))})
+	writeFile(t, filepath.Join(ws.PKIDir(), "ca.crt"), "CA")
+	if err := ws.Checkpoint(context.Background()); !errors.Is(err, ErrStoreChanged) {
+		t.Errorf("Checkpoint over a newer version: err = %v, want ErrStoreChanged", err)
+	}
+}
+
 func TestCloseRemovesTempAndLock(t *testing.T) {
 	cfg, f := s3Env(t)
 	ws, err := Open(context.Background(), cfg, Write, deps(f, "create alice"))
