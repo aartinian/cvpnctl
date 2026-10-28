@@ -90,6 +90,9 @@ func Pack(root string) ([]byte, error) {
 // needed. Files are written with mode 0600 and directories with 0700. Any
 // entry that could escape root or isn't a plain file or directory makes it
 // fail with ErrUnsafeArchive.
+//
+// Besides checking the names, it writes through an os.Root, so the OS itself
+// refuses any path that would leave root, even through a symlink in it.
 func Unpack(data []byte, root string) error {
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -98,6 +101,11 @@ func Unpack(data []byte, root string) error {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return fmt.Errorf("store: unpack: %w", err)
 	}
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return fmt.Errorf("store: unpack: %w", err)
+	}
+	defer func() { _ = dir.Close() }()
 
 	tr := tar.NewReader(io.LimitReader(gz, maxArchiveSize+1))
 	var total int64
@@ -113,11 +121,11 @@ func Unpack(data []byte, root string) error {
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(root, filepath.FromSlash(name))
+		target := filepath.FromSlash(name)
 
 		switch h.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o700); err != nil {
+			if err := dir.MkdirAll(target, 0o700); err != nil {
 				return fmt.Errorf("store: unpack: %w", err)
 			}
 		case tar.TypeReg:
@@ -125,7 +133,7 @@ func Unpack(data []byte, root string) error {
 			if total > maxArchiveSize {
 				return fmt.Errorf("%w: more than %d bytes", ErrUnsafeArchive, maxArchiveSize)
 			}
-			if err := writeEntry(tr, target, h.Size); err != nil {
+			if err := writeEntry(dir, tr, target, h.Size); err != nil {
 				return err
 			}
 		default:
@@ -148,11 +156,12 @@ func safeName(name string) (string, error) {
 	return clean, nil
 }
 
-func writeEntry(r io.Reader, target string, size int64) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+// writeEntry writes size bytes from r to target, a path inside dir.
+func writeEntry(dir *os.Root, r io.Reader, target string, size int64) error {
+	if err := dir.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return fmt.Errorf("store: unpack: %w", err)
 	}
-	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := dir.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("store: unpack: %w", err)
 	}

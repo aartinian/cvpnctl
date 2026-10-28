@@ -151,3 +151,30 @@ func TestUnpackRejectsGarbage(t *testing.T) {
 		t.Error("Unpack accepted garbage")
 	}
 }
+
+// A symlink already inside the target that points outside it: the names in
+// the archive are fine, but writing through the link would escape the root.
+func TestUnpackDoesNotFollowSymlinkOut(t *testing.T) {
+	outside, dst := t.TempDir(), t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dst, "pki")); err != nil {
+		t.Fatal(err)
+	}
+	err := Unpack(rawArchive(t, tar.Header{Name: "pki/ca.crt", Typeflag: tar.TypeReg, Mode: 0o600}), dst)
+	if err == nil {
+		t.Error("Unpack wrote through a symlink that leaves the root")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "ca.crt")); err == nil {
+		t.Error("a file was written outside the root")
+	}
+}
+
+// Dots inside a name are no parent reference: users like a..b are valid.
+func TestUnpackAcceptsDotsInNames(t *testing.T) {
+	dst := t.TempDir()
+	if err := Unpack(rawArchive(t, tar.Header{Name: "pki/issued/a..b.crt", Typeflag: tar.TypeReg, Mode: 0o600}), dst); err != nil {
+		t.Fatalf("Unpack: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "pki", "issued", "a..b.crt")); err != nil {
+		t.Error(err)
+	}
+}
