@@ -186,10 +186,15 @@ func stage(src *config.Config, dir string) error {
 		return err
 	}
 	stateFile := filepath.Join(src.Certs.OutputDir, state.Filename)
-	if _, err := os.Stat(stateFile); err == nil {
+	switch _, err := os.Stat(stateFile); {
+	case err == nil:
 		if err := copyFile(stateFile, filepath.Join(dir, "state", state.Filename)); err != nil {
 			return err
 		}
+	case !errors.Is(err, fs.ErrNotExist):
+		// Unreadable is not absent: migrating without it would drop every
+		// user's ACM mapping.
+		return err
 	}
 	return copyFile(src.OVPN.Template, filepath.Join(dir, "template", "base.ovpn"))
 }
