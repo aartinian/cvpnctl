@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -208,5 +209,70 @@ func TestAcquireConcurrent(t *testing.T) {
 	}
 	if won != 1 {
 		t.Errorf("%d admins got the lock, want exactly 1", won)
+	}
+}
+
+// The lock write landed but its response was lost. Whether the SDK's retry
+// then got 412 from our own lock, or the error hid that it landed, the lock
+// carries our token, so Acquire holds it, and Release removes it.
+func TestAcquireAfterLostResponse(t *testing.T) {
+	tests := map[string]error{
+		"retry got 412":   storetest.APIError("PutObject", http.StatusPreconditionFailed, "PreconditionFailed"),
+		"connection lost": errors.New("connection reset"),
+	}
+	for name, putErr := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := storetest.New()
+			f.FailNextPut(putErr, true)
+			l, err := Acquire(context.Background(), f, testStore, info("ari"))
+			if err != nil {
+				t.Fatalf("Acquire: %v, want our own landed lock", err)
+			}
+			if err := l.Release(context.Background()); err != nil {
+				t.Errorf("Release: %v", err)
+			}
+			if _, held, _ := ReadLock(context.Background(), f, testStore); held {
+				t.Error("lock still held after Release")
+			}
+		})
+	}
+}
+
+// The write didn't land: the error is reported and nothing is locked.
+func TestAcquireFailedWrite(t *testing.T) {
+	f := storetest.New()
+	f.FailNextPut(errors.New("connection reset"), false)
+	if _, err := Acquire(context.Background(), f, testStore, info("ari")); err == nil || !strings.Contains(err.Error(), "connection reset") {
+		t.Errorf("err = %v, want the write's error", err)
+	}
+	if _, held, _ := ReadLock(context.Background(), f, testStore); held {
+		t.Error("a lock is held although the write failed")
+	}
+}
+
+// Ctrl-C while the write was in flight, and it landed: the command stops, so
+// it must take its lock down again rather than leave the store locked.
+func TestAcquireCancelledAfterLanding(t *testing.T) {
+	f := storetest.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	f.FailNextPut(errors.New("request canceled"), true)
+	cancel()
+	if _, err := Acquire(ctx, f, testStore, info("ari")); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if _, held, _ := ReadLock(context.Background(), f, testStore); held {
+		t.Error("the landed lock was left behind")
+	}
+}
+
+// Another command's lock never counts as ours, even with the same identity.
+func TestAcquireDoesNotAdoptOthers(t *testing.T) {
+	f := storetest.New()
+	if _, err := Acquire(context.Background(), f, testStore, info("ari")); err != nil {
+		t.Fatal(err)
+	}
+	var locked *LockedError
+	if _, err := Acquire(context.Background(), f, testStore, info("ari")); !errors.As(err, &locked) {
+		t.Errorf("err = %v, want *LockedError", err)
 	}
 }

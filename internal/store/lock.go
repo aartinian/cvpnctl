@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,7 @@ type LockInfo struct {
 	PID     int       `json:"pid"`
 	Command string    `json:"command"`
 	Started time.Time `json:"started"`
+	Token   string    `json:"token"` // random per Acquire, so a command can recognise its own lock
 
 	ETag string `json:"-"` // of the lock object, as ReadLock found it; for ForceUnlock
 }
@@ -69,7 +71,12 @@ type Lock struct {
 // Acquire takes the lock by creating the lock object only if none exists
 // (If-None-Match: *). If another command holds it, it returns a *LockedError
 // describing that command. It never waits for a lock to be released.
+//
+// A write can land although its response is lost: the SDK's retry then gets
+// 412 from our own lock, or the error hides that it landed. In both cases
+// Acquire reads the lock, and if it carries this call's token, holds it.
 func Acquire(ctx context.Context, client S3API, sc config.StoreConfig, info LockInfo) (*Lock, error) {
+	info.Token = rand.Text()
 	body, err := json.Marshal(info)
 	if err != nil {
 		return nil, fmt.Errorf("store: lock: %w", err)
@@ -93,6 +100,9 @@ func Acquire(ctx context.Context, client S3API, sc config.StoreConfig, info Lock
 			if rerr != nil {
 				return nil, rerr
 			}
+			if ok && held.Token == info.Token {
+				return &Lock{s3: client, sc: sc, etag: held.ETag}, nil
+			}
 			if !ok { // released between our write and our read: try again, a bounded number of times
 				if attempt < lockRetries {
 					continue
@@ -109,12 +119,37 @@ func Acquire(ctx context.Context, client S3API, sc config.StoreConfig, info Lock
 		case IsConflict(err):
 			return nil, errors.New("store: could not take the lock: concurrent requests kept conflicting; try again")
 		default:
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, ctxErr
-			}
-			return nil, fmt.Errorf("store: take the lock: %w", err)
+			return settleLock(ctx, client, sc, info.Token, err)
 		}
 	}
+}
+
+// settleLock handles a lock write that failed without a clear answer, by
+// reading the lock back. If the write landed, the lock is ours: it is kept,
+// unless the command was cancelled, in which case it is removed again so the
+// store isn't left locked. Otherwise the original error is returned.
+func settleLock(ctx context.Context, client S3API, sc config.StoreConfig, token string, putErr error) (*Lock, error) {
+	cancelled := ctx.Err()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
+	defer cancel()
+	held, ok, err := ReadLock(ctx, client, sc)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("store: take the lock: %w; it may have been taken anyway, so check cvpnctl status (%v)", putErr, err)
+	case !ok || held.Token != token:
+		if cancelled != nil {
+			return nil, cancelled
+		}
+		return nil, fmt.Errorf("store: take the lock: %w", putErr)
+	}
+	lock := &Lock{s3: client, sc: sc, etag: held.ETag}
+	if cancelled == nil {
+		return lock, nil
+	}
+	if err := lock.Release(ctx); err != nil {
+		return nil, fmt.Errorf("%w; the lock was taken anyway and removing it failed (%v): run cvpnctl unlock", cancelled, err)
+	}
+	return nil, cancelled
 }
 
 // Release deletes the lock, but only if it is still the one we created
