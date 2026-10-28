@@ -51,9 +51,10 @@ func sameDay(y int, m time.Month, d int, t time.Time) bool {
 	return y == ty && m == tm && d == td
 }
 
-// ErrLockLost is returned by Release when the lock is no longer ours: it was
-// force-removed, and possibly taken by someone else since. Callers warn about
-// it rather than fail, because the work is already saved or abandoned.
+// ErrLockLost is returned by Release and Verify when the lock is no longer
+// ours: it was force-removed, and possibly taken by someone else since.
+// Release's callers warn about it rather than fail, because the work is
+// already saved or abandoned.
 var ErrLockLost = errors.New("the lock was removed or taken over while this command ran")
 
 // Lock is a held lock. Release it exactly once.
@@ -159,6 +160,20 @@ func ReadLock(ctx context.Context, client S3API, sc config.StoreConfig) (*LockIn
 // crash. A command still running under the removed lock fails at its next
 // checkpoint, because the archive's If-Match no longer holds once anyone else
 // writes it.
+// held checks that the lock object is still the one we wrote.
+func (l *Lock) held(ctx context.Context) error {
+	out, err := l.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(l.sc.Bucket), Key: aws.String(l.sc.Key(lockKey))})
+	switch {
+	case IsNotFound(err):
+		return ErrLockLost
+	case err != nil:
+		return fmt.Errorf("store: check the lock: %w", err)
+	case aws.ToString(out.ETag) != l.etag:
+		return ErrLockLost
+	}
+	return nil
+}
+
 func ForceUnlock(ctx context.Context, client S3API, sc config.StoreConfig) error {
 	_, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(lockKey))})
 	if err != nil {

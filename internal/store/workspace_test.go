@@ -350,6 +350,30 @@ func TestOpenDamaged(t *testing.T) {
 	}
 }
 
+func TestVerify(t *testing.T) {
+	ws, f := openWrite(t)
+	if err := ws.Verify(context.Background()); err != nil {
+		t.Fatalf("fresh workspace: %v", err)
+	}
+
+	// The archive was overwritten behind our back.
+	f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader([]byte("newer"))})
+	if err := ws.Verify(context.Background()); !errors.Is(err, ErrStoreChanged) {
+		t.Errorf("archive changed: err = %v, want ErrStoreChanged", err)
+	}
+
+	// The lock was forced and taken by someone else.
+	if err := ForceUnlock(context.Background(), f, testStore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Acquire(context.Background(), f, testStore, LockInfo{ARN: "nils"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.Verify(context.Background()); !errors.Is(err, ErrLockLost) {
+		t.Errorf("lock taken over: err = %v, want ErrLockLost", err)
+	}
+}
+
 func TestCloseRemovesTempAndLock(t *testing.T) {
 	cfg, f := s3Env(t)
 	ws, err := Open(context.Background(), cfg, Write, deps(f, "create alice"))

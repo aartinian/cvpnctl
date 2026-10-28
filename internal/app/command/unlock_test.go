@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"regexp"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/store"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // holdLock takes the store's lock as another admin, started age ago.
@@ -94,5 +97,39 @@ func TestStatusShowsOldLock(t *testing.T) {
 	out, err := h.status()
 	if !errors.Is(err, ErrNeedsAttention) || !strings.Contains(out, "cvpnctl unlock") {
 		t.Errorf("a 2-hour-old lock: err=%v\n%s", err, out)
+	}
+}
+
+// A revoke whose lock is forced right after its checkpoint, while another
+// admin revokes bob and pushes: the stale revoke must not push its older CRL,
+// which would let bob back in.
+func TestStaleCommandDoesNotPushCRL(t *testing.T) {
+	h := newHarnessS3(t)
+	h.must(h.create("alice"))
+	h.must(h.create("bob"))
+	pushes := 0
+	h.cloud.onPush = func(map[string]bool) { pushes++ }
+
+	fired := false
+	h.s3.AfterPut = func(key string) {
+		if fired || !strings.HasSuffix(key, "pki.tar.gz") {
+			return
+		}
+		fired = true
+		if err := store.ForceUnlock(context.Background(), h.s3, storeCfg); err != nil {
+			t.Error(err)
+		}
+		if _, err := store.Acquire(context.Background(), h.s3, storeCfg, store.LockInfo{ARN: "nils"}); err != nil {
+			t.Error(err)
+		}
+		h.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String(key), Body: bytes.NewReader([]byte("nils revoked bob"))})
+	}
+
+	err := h.revoke("alice")
+	if err == nil || !strings.Contains(err.Error(), "not pushed") || !strings.Contains(err.Error(), "push-crl") {
+		t.Fatalf("err = %v, want a refused push that says to run push-crl", err)
+	}
+	if pushes != 0 {
+		t.Errorf("%d CRL pushes after the lock was forced, want 0", pushes)
 	}
 }
