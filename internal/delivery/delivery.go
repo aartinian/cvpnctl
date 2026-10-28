@@ -85,17 +85,20 @@ func (d *Deliverer) Remove(ctx context.Context, user string) error {
 	// Listing by prefix also finds users whose names start with user plus a
 	// hyphen (bob → bob-x); the exact pattern keeps only user's own files.
 	own := regexp.MustCompile("^" + regexp.QuoteMeta(prefix) + "[0-9a-f]{32}\\.ovpn$")
-	out, err := d.s3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(d.sc.Bucket), Prefix: aws.String(prefix)})
-	if err != nil {
-		return fmt.Errorf("delivery: list %s's links: %w", user, err)
-	}
-	for _, o := range out.Contents {
-		key := aws.ToString(o.Key)
-		if !own.MatchString(key) {
-			continue
+	pages := s3.NewListObjectsV2Paginator(d.s3, &s3.ListObjectsV2Input{Bucket: aws.String(d.sc.Bucket), Prefix: aws.String(prefix)})
+	for pages.HasMorePages() {
+		out, err := pages.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("delivery: list %s's links: %w", user, err)
 		}
-		if _, err := d.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(d.sc.Bucket), Key: aws.String(key)}); err != nil {
-			return fmt.Errorf("delivery: delete %s: %w", key, err)
+		for _, o := range out.Contents {
+			key := aws.ToString(o.Key)
+			if !own.MatchString(key) {
+				continue
+			}
+			if _, err := d.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(d.sc.Bucket), Key: aws.String(key)}); err != nil {
+				return fmt.Errorf("delivery: delete %s: %w", key, err)
+			}
 		}
 	}
 	return nil
