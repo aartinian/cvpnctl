@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -176,5 +178,44 @@ func TestUnpackAcceptsDotsInNames(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dst, "pki", "issued", "a..b.crt")); err != nil {
 		t.Error(err)
+	}
+}
+
+// Pack refuses what Unpack would refuse, both by file size and by the size
+// of the tar stream (headers included), and accepts what fits.
+func TestPackSizeLimit(t *testing.T) {
+	tests := map[string]struct {
+		files   int
+		size    int64
+		wantErr bool
+	}{
+		"one large file":        {1, maxArchiveSize + 1, true},
+		"many files near limit": {1024, maxArchiveSize/1024 - 256, true}, // contents fit, headers don't
+		"fits":                  {1, maxArchiveSize - 64<<10, false},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			for i := range tc.files {
+				p := filepath.Join(root, "pki", "issued", fmt.Sprintf("f%04d", i))
+				writeFile(t, p, "")
+				if err := os.Truncate(p, tc.size); err != nil {
+					t.Fatal(err)
+				}
+			}
+			data, err := Pack(root)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "nothing was saved") {
+					t.Fatalf("err = %v, want a size refusal", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Pack: %v", err)
+			}
+			if err := Unpack(data, t.TempDir()); err != nil {
+				t.Errorf("Unpack of an archive Pack accepted: %v", err)
+			}
+		})
 	}
 }
