@@ -174,14 +174,18 @@ func (e *env) publish(ctx context.Context, user string, hours int) (string, erro
 		return "", err
 	}
 	var url string
+	var expires time.Time
 	err = step("uploading the .ovpn", ".ovpn uploaded", func() (string, error) {
-		u, expires, err := e.deliver.Publish(ctx, user, data, hours)
-		if err != nil {
+		var err error
+		if url, expires, err = e.deliver.Publish(ctx, user, data, hours); err != nil {
 			return "", err
 		}
-		url = u
 		return "link valid until " + expires.Local().Format("2006-01-02 15:04"), nil
 	})
+	if err == nil && time.Until(expires) < time.Duration(hours)*time.Hour-time.Minute {
+		ui.Warn("the link stops working when your AWS credentials expire, at %s, not after %d h; for a longer link, use a longer session or an IAM user, or run cvpnctl link later",
+			expires.Local().Format("2006-01-02 15:04"), hours)
+	}
 	return url, err
 }
 

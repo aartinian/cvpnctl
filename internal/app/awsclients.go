@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/delivery"
@@ -33,11 +34,26 @@ func newS3(ctx context.Context, cfg *config.Config) (store.S3API, func(context.C
 }
 
 // newPresigner returns the signer for .ovpn download links. Links are signed
-// with the admin's credentials and stop working if those are deactivated.
+// with the admin's credentials and stop working if those are deactivated or
+// expire.
 func newPresigner(ctx context.Context, cfg *config.Config) (delivery.Presigner, error) {
 	awsCfg, err := awsprovider.LoadConfig(ctx, &cfg.AWS)
 	if err != nil {
 		return nil, err
 	}
-	return s3.NewPresignClient(s3.NewFromConfig(awsCfg)), nil
+	return presigner{s3.NewPresignClient(s3.NewFromConfig(awsCfg)), awsCfg.Credentials}, nil
+}
+
+var _ delivery.CredentialExpirer = presigner{}
+
+// presigner is an S3 presign client that also reports when its credentials
+// expire (delivery.CredentialExpirer).
+type presigner struct {
+	*s3.PresignClient
+	creds aws.CredentialsProvider
+}
+
+func (p presigner) CredentialsExpire(ctx context.Context) (time.Time, bool, error) {
+	c, err := p.creds.Retrieve(ctx)
+	return c.Expires, c.CanExpire, err
 }

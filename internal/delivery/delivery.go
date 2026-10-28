@@ -30,6 +30,13 @@ type Presigner interface {
 	PresignGetObject(context.Context, *s3.GetObjectInput, ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error)
 }
 
+// CredentialExpirer is implemented by a Presigner that knows when the
+// credentials it signs with expire. Temporary credentials (SSO, an assumed
+// role) end a link early: it stops working when they expire.
+type CredentialExpirer interface {
+	CredentialsExpire(context.Context) (expires time.Time, canExpire bool, err error)
+}
+
 // Deliverer publishes and removes users' .ovpn files.
 type Deliverer struct {
 	s3      store.S3API
@@ -42,8 +49,9 @@ func New(client store.S3API, p Presigner, sc config.StoreConfig) *Deliverer {
 	return &Deliverer{s3: client, presign: p, sc: sc}
 }
 
-// Publish uploads user's .ovpn and returns a link valid for hours (1–168).
-// Any earlier link for user is deleted first: each user has at most one.
+// Publish uploads user's .ovpn and returns a link valid for hours (1–168),
+// and when it really expires: earlier, if the signing credentials expire
+// first. Any earlier link for user is deleted first: each user has at most one.
 func (d *Deliverer) Publish(ctx context.Context, user string, ovpn []byte, hours int) (url string, expires time.Time, err error) {
 	if hours < 1 || hours > MaxHours {
 		return "", time.Time{}, fmt.Errorf("delivery: link_hours must be 1–%d, got %d", MaxHours, hours)
@@ -74,6 +82,11 @@ func (d *Deliverer) Publish(ctx context.Context, user string, ovpn []byte, hours
 		s3.WithPresignExpires(validity))
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("delivery: sign the link: %w", err)
+	}
+	if ce, ok := d.presign.(CredentialExpirer); ok {
+		if until, can, err := ce.CredentialsExpire(ctx); err == nil && can && until.Before(expires) {
+			expires = until
+		}
 	}
 	return req.URL, expires, nil
 }
