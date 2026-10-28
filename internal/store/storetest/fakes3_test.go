@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/aartinian/cvpnctl/internal/store"
@@ -155,5 +157,53 @@ func TestBucketSettings(t *testing.T) {
 	enc, _ := f.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{Bucket: aws.String("b")})
 	if got := aws.ToString(enc.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.KMSMasterKeyID); got != f.Settings.KMSKeyID {
 		t.Errorf("KMS key = %q", got)
+	}
+}
+
+// Listing versions page by page yields every version and delete marker once,
+// across keys, in the same order as one unlimited listing.
+func TestListObjectVersionsPages(t *testing.T) {
+	f := storetest.New()
+	put := func(key string) {
+		f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String(key), Body: strings.NewReader("x")})
+	}
+	put("p/a")
+	put("p/a")
+	f.DeleteObject(context.Background(), &s3.DeleteObjectInput{Bucket: aws.String("b"), Key: aws.String("p/a")})
+	put("p/b")
+	put("p/b")
+
+	entries := func() []string {
+		var got []string
+		in := &s3.ListObjectVersionsInput{Bucket: aws.String("b"), Prefix: aws.String("p/")}
+		for {
+			out, err := f.ListObjectVersions(context.Background(), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, v := range out.Versions {
+				got = append(got, aws.ToString(v.Key)+"@"+aws.ToString(v.VersionId))
+			}
+			for _, m := range out.DeleteMarkers {
+				got = append(got, aws.ToString(m.Key)+"@"+aws.ToString(m.VersionId))
+			}
+			if !aws.ToBool(out.IsTruncated) {
+				return got
+			}
+			in.KeyMarker, in.VersionIdMarker = out.NextKeyMarker, out.NextVersionIdMarker
+		}
+	}
+	whole := entries()
+	sort.Strings(whole)
+	for _, size := range []int{1, 2, 3} {
+		f.PageSize = size
+		paged := entries()
+		sort.Strings(paged)
+		if strings.Join(paged, " ") != strings.Join(whole, " ") {
+			t.Errorf("page size %d: %v, want %v", size, paged, whole)
+		}
+	}
+	if len(whole) != 5 {
+		t.Errorf("%d entries, want 5: %v", len(whole), whole)
 	}
 }
