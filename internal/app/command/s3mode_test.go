@@ -247,9 +247,23 @@ func TestS3List(t *testing.T) {
 		t.Error("list created a provider")
 		return nil, errors.New("no")
 	}
-	h.must(runList(h.opts))
+	h.must(runList(context.Background(), h.opts))
 	if l := h.leftovers(); len(l) != 0 {
 		t.Errorf("temp folders left after list: %v", l)
+	}
+}
+
+// Ctrl-C cancels the command's context: list stops instead of carrying on.
+func TestS3ListCancelled(t *testing.T) {
+	h := newHarnessS3(t)
+	h.must(h.create("alice"))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runList(ctx, h.opts); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if l := h.leftovers(); len(l) != 0 {
+		t.Errorf("temp folders left: %v", l)
 	}
 }
 

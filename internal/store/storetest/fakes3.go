@@ -223,7 +223,10 @@ func (f *FakeS3) lookup(op, key string, versionID *string) (*version, error) {
 	return nil, apiError(op, http.StatusNotFound, "NoSuchKey")
 }
 
-func (f *FakeS3) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+func (f *FakeS3) GetObject(ctx context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	if err := ctx.Err(); err != nil { // as the SDK does for a cancelled request
+		return nil, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	v, err := f.lookup("GetObject", aws.ToString(in.Key), in.VersionId)
