@@ -246,3 +246,32 @@ func TestLinkWarnsWhenCredentialsExpireFirst(t *testing.T) {
 		t.Errorf("no warning about the shorter link:\n%s", errOut)
 	}
 }
+
+// link's lock is forced while it runs and another admin takes over: it must
+// not publish, since the other admin may have renewed the user meanwhile.
+func TestLinkStaleLockDoesNotPublish(t *testing.T) {
+	h := newHarnessS3(t)
+	h.must(h.create("alice"))
+	before := h.links()
+	fired := false
+	h.s3.AfterPut = func(key string) {
+		if fired || !strings.HasSuffix(key, "lock") {
+			return
+		}
+		fired = true
+		if err := forceUnlock(t, h.s3); err != nil {
+			t.Error(err)
+		}
+		if _, err := store.Acquire(context.Background(), h.s3, storeCfg, store.LockInfo{ARN: "nils"}); err != nil {
+			t.Error(err)
+		}
+	}
+
+	_, err := captureStdout(t, func() error { return runLink(context.Background(), h.opts, "alice", 0) })
+	if err == nil || !strings.Contains(err.Error(), "not published") {
+		t.Fatalf("err = %v, want a refused publish", err)
+	}
+	if after := h.links(); strings.Join(after, " ") != strings.Join(before, " ") {
+		t.Errorf("links changed: %v → %v", before, after)
+	}
+}

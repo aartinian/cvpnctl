@@ -266,3 +266,21 @@ func TestRecoverWorkspaceReplacesDamaged(t *testing.T) {
 		t.Error("the restored archive lacks alice")
 	}
 }
+
+// Restore writes, so its lock (and the archive it saves) must name the admin.
+func TestRestoreLockNamesCaller(t *testing.T) {
+	h := newHarnessS3(t)
+	cfg, err := config.Load(h.opts.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, _, err := h.opts.openWorkspace(context.Background(), cfg, store.Recover, "store restore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close(context.Background())
+	info, held, _ := store.ReadLock(context.Background(), h.s3, storeCfg)
+	if !held || info.ARN != testCaller {
+		t.Errorf("lock = %+v, want it to name %s", info, testCaller)
+	}
+}

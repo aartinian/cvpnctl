@@ -139,7 +139,7 @@ func (o *Options) openWorkspace(ctx context.Context, cfg *config.Config, mode st
 		return nil, nil, err
 	}
 	d := store.Deps{S3: client, Command: command}
-	if mode == store.Write {
+	if mode != store.Read { // the lock and the archive record who wrote them
 		if d.Caller, err = caller(ctx); err != nil {
 			return nil, nil, err
 		}
@@ -176,6 +176,12 @@ func (e *env) publish(ctx context.Context, user string, hours int) (string, erro
 	var url string
 	var expires time.Time
 	err = step("uploading the .ovpn", ".ovpn uploaded", func() (string, error) {
+		// As for a CRL push: after a forced unlock, another admin may have
+		// renewed user since, and this older certificate would replace
+		// their link.
+		if err := e.ws.Verify(ctx); err != nil {
+			return "", fmt.Errorf("the link was not published: %w; run cvpnctl link -u %s once nobody else is running cvpnctl", err, user)
+		}
 		var err error
 		if url, expires, err = e.deliver.Publish(ctx, user, data, hours); err != nil {
 			return "", err
@@ -301,7 +307,7 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		if errors.Is(err, store.ErrUploadUnknown) {
 			// The stored PKI may already record the certificate: undoing
 			// it in ACM or the PKI could break a user who is saved.
-			err = fmt.Errorf("%w\ncertificate %s was imported to ACM; if cvpnctl list does not show %s, delete it from ACM by hand", err, id, user)
+			err = fmt.Errorf("%w\ncertificate %s was imported to ACM; if cvpnctl list does not show it as %s's PROVIDER ID, delete it from ACM by hand", err, id, user)
 			return
 		}
 		if rmErr := e.pki.RemoveCertFiles(user); rmErr != nil {

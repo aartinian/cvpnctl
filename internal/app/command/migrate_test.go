@@ -131,3 +131,20 @@ func TestMigrateRequiresModes(t *testing.T) {
 		t.Errorf("active config in local mode: err = %v", err)
 	}
 }
+
+// A state file that can't be checked is not a missing one: migrating without
+// it would drop every user's ACM mapping, so migrate stops.
+func TestMigrateUnreadableState(t *testing.T) {
+	h, local := localThenS3(t)
+	if err := os.Chmod(h.certsDir(), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(h.certsDir(), 0o700) })
+
+	if _, err := migrate(h, local); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("err = %v, want the stat error", err)
+	}
+	if _, ok := h.s3.Object("cvpnctl/pki.tar.gz"); ok {
+		t.Error("an archive was uploaded without the state")
+	}
+}
