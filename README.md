@@ -225,8 +225,10 @@ also shows the bucket's settings, the current version, and the lock.
 }
 ```
 
-A link is signed with the admin's access key: it stops working early if that
-key is deactivated, and it can be valid for at most 7 days.
+A link is signed with the admin's credentials: it stops working early if they
+are deactivated, and it can be valid for at most 7 days. Temporary credentials
+(SSO, an assumed role) end it when they expire; cvpnctl then prints the real
+expiry and warns.
 
 ## Certificates and expiry
 

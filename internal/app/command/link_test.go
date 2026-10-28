@@ -20,7 +20,10 @@ import (
 )
 
 // stubPresigner returns https://example.test/<key> and records the expiry.
-type stubPresigner struct{ expires time.Duration }
+type stubPresigner struct {
+	expires    time.Duration
+	credsUntil time.Time // zero: credentials that don't expire
+}
 
 func (p *stubPresigner) PresignGetObject(_ context.Context, in *s3.GetObjectInput, opts ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error) {
 	var o s3.PresignOptions
@@ -29,6 +32,27 @@ func (p *stubPresigner) PresignGetObject(_ context.Context, in *s3.GetObjectInpu
 	}
 	p.expires = o.Expires
 	return &v4.PresignedHTTPRequest{URL: "https://example.test/" + aws.ToString(in.Key), Method: "GET"}, nil
+}
+
+// credsUntil makes the stub sign with credentials that expire at until.
+func (p *stubPresigner) CredentialsExpire(context.Context) (time.Time, bool, error) {
+	return p.credsUntil, !p.credsUntil.IsZero(), nil
+}
+
+// captureStderr runs fn and returns what it printed to stderr.
+func captureStderr(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	runErr := fn()
+	os.Stderr = old
+	_ = w.Close()
+	out, _ := io.ReadAll(r)
+	return string(out), runErr
 }
 
 // captureStdout runs fn and returns what it printed to stdout.
@@ -201,5 +225,24 @@ func TestLinkTakesLock(t *testing.T) {
 	var locked *store.LockedError
 	if err := runLink(context.Background(), h.opts, "alice", 0); !errors.As(err, &locked) {
 		t.Fatalf("link while the lock is held: err = %v, want *LockedError", err)
+	}
+}
+
+// Signed with an SSO session that ends in 2 hours: the link is reported as
+// ending then, with a warning, instead of the 24 hours asked for.
+func TestLinkWarnsWhenCredentialsExpireFirst(t *testing.T) {
+	h := newHarnessS3(t)
+	h.must(h.create("alice"))
+	h.presign.credsUntil = time.Now().Add(2 * time.Hour)
+
+	errOut, err := captureStderr(t, func() error {
+		_, err := captureStdout(t, func() error { return runLink(context.Background(), h.opts, "alice", 24) })
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "credentials expire") || !strings.Contains(errOut, "not after 24 h") {
+		t.Errorf("no warning about the shorter link:\n%s", errOut)
 	}
 }

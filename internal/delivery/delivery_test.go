@@ -172,3 +172,33 @@ func TestRemoveFollowsPages(t *testing.T) {
 		t.Errorf("%d links left, want the other users' 5: %s", n, ks)
 	}
 }
+
+// expiringPresigner signs with temporary credentials that end at until.
+type expiringPresigner struct {
+	stubPresigner
+	until time.Time
+}
+
+func (p *expiringPresigner) CredentialsExpire(context.Context) (time.Time, bool, error) {
+	return p.until, true, nil
+}
+
+// A link can't outlive the credentials that signed it: Publish reports the
+// earlier time. Credentials lasting longer than the link change nothing.
+func TestPublishCappedByCredentials(t *testing.T) {
+	soon := time.Now().Add(2 * time.Hour)
+	d := New(storetest.New(), &expiringPresigner{until: soon}, sc)
+	_, expires, err := d.Publish(context.Background(), "bob", []byte("bob"), 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !expires.Equal(soon) {
+		t.Errorf("expires = %v, want the credentials' expiry %v", expires, soon)
+	}
+
+	d = New(storetest.New(), &expiringPresigner{until: time.Now().Add(48 * time.Hour)}, sc)
+	_, expires, _ = d.Publish(context.Background(), "bob", []byte("bob"), 24)
+	if d := time.Until(expires); d < 23*time.Hour || d > 24*time.Hour {
+		t.Errorf("link valid for %v, want 24h", d)
+	}
+}
