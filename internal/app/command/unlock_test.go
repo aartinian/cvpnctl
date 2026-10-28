@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/store"
+	"github.com/aartinian/cvpnctl/internal/store/storetest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -116,7 +117,7 @@ func TestStaleCommandDoesNotPushCRL(t *testing.T) {
 			return
 		}
 		fired = true
-		if err := store.ForceUnlock(context.Background(), h.s3, storeCfg); err != nil {
+		if err := forceUnlock(t, h.s3); err != nil {
 			t.Error(err)
 		}
 		if _, err := store.Acquire(context.Background(), h.s3, storeCfg, store.LockInfo{ARN: "nils"}); err != nil {
@@ -132,4 +133,14 @@ func TestStaleCommandDoesNotPushCRL(t *testing.T) {
 	if pushes != 0 {
 		t.Errorf("%d CRL pushes after the lock was forced, want 0", pushes)
 	}
+}
+
+// forceUnlock removes whatever lock is held now, as cvpnctl unlock does.
+func forceUnlock(t *testing.T, f *storetest.FakeS3) error {
+	t.Helper()
+	held, ok, err := store.ReadLock(context.Background(), f, storeCfg)
+	if err != nil || !ok {
+		t.Fatalf("no lock to remove: %v", err)
+	}
+	return store.ForceUnlock(context.Background(), f, storeCfg, held.ETag)
 }

@@ -68,7 +68,10 @@ func runUnlock(ctx context.Context, opts *Options, yes bool) error {
 			return errors.New("aborted")
 		}
 	}
-	if err := store.ForceUnlock(ctx, client, *cfg.Store); err != nil {
+	if err := store.ForceUnlock(ctx, client, *cfg.Store, info.ETag); err != nil {
+		if errors.Is(err, store.ErrLockChanged) {
+			return fmt.Errorf("%w; run cvpnctl unlock again to see who holds it now", err)
+		}
 		return err
 	}
 	ui.Done("Lock removed. If that command was still running, run cvpnctl status once it has stopped: what it was doing in that moment may have completed.")

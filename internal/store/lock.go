@@ -32,6 +32,8 @@ type LockInfo struct {
 	PID     int       `json:"pid"`
 	Command string    `json:"command"`
 	Started time.Time `json:"started"`
+
+	ETag string `json:"-"` // of the lock object, as ReadLock found it; for ForceUnlock
 }
 
 // LockedError reports that another command holds the lock.
@@ -153,13 +155,10 @@ func ReadLock(ctx context.Context, client S3API, sc config.StoreConfig) (*LockIn
 		// An unreadable lock still blocks; describe it rather than fail.
 		info = LockInfo{ARN: "(unreadable lock)", Host: "?", Command: "?"}
 	}
+	info.ETag = aws.ToString(out.ETag)
 	return &info, true, nil
 }
 
-// ForceUnlock deletes the lock unconditionally, for `cvpnctl unlock` after a
-// crash. A command still running under the removed lock fails at its next
-// checkpoint, because the archive's If-Match no longer holds once anyone else
-// writes it.
 // held checks that the lock object is still the one we wrote.
 func (l *Lock) held(ctx context.Context) error {
 	out, err := l.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(l.sc.Bucket), Key: aws.String(l.sc.Key(lockKey))})
@@ -174,8 +173,29 @@ func (l *Lock) held(ctx context.Context) error {
 	return nil
 }
 
-func ForceUnlock(ctx context.Context, client S3API, sc config.StoreConfig) error {
-	_, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(lockKey))})
+// ErrLockChanged is returned by ForceUnlock when the lock is no longer the one
+// that was shown: its holder finished and another command took it since.
+var ErrLockChanged = errors.New("the lock changed hands since it was shown; nothing was removed")
+
+// ForceUnlock deletes the lock, for `cvpnctl unlock` after a crash, but only
+// if it is still the one with etag (from ReadLock): a command that took the
+// lock after it was shown keeps it. A command still running under the
+// removed lock fails at its next checkpoint, because the archive's If-Match
+// no longer holds once anyone else writes it.
+func ForceUnlock(ctx context.Context, client S3API, sc config.StoreConfig, etag string) error {
+	_, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(lockKey)), IfMatch: aws.String(etag)})
+	if IsPreconditionFailed(err) || IsNotFound(err) {
+		// Either already gone, which is what was asked for, or someone
+		// else's lock now.
+		_, held, rerr := ReadLock(ctx, client, sc)
+		switch {
+		case rerr != nil:
+			return rerr
+		case held:
+			return ErrLockChanged
+		}
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("store: remove the lock: %w", err)
 	}
