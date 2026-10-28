@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -282,6 +283,36 @@ func TestCheckpointAmbiguousLost(t *testing.T) {
 	}
 	if got := stored(t, f, "pki/index.txt"); got != "" {
 		t.Errorf("stored index.txt = %q, want the original (empty)", got)
+	}
+}
+
+// The response was lost and the SDK's retry got 412 against the upload that
+// landed: the checksum shows the archive is ours, so this is no conflict.
+func TestCheckpointRetryAfterLanding(t *testing.T) {
+	ws, f := openWrite(t)
+	os.WriteFile(filepath.Join(ws.PKIDir(), "index.txt"), []byte("landed"), 0o600)
+	f.FailNextPut(storetest.APIError("PutObject", http.StatusPreconditionFailed, "PreconditionFailed"), true)
+
+	if err := ws.Checkpoint(context.Background()); err != nil {
+		t.Fatalf("err = %v, want success (the upload landed)", err)
+	}
+	os.WriteFile(filepath.Join(ws.PKIDir(), "index.txt"), []byte("next"), 0o600)
+	if err := ws.Checkpoint(context.Background()); err != nil {
+		t.Fatalf("next checkpoint: %v", err)
+	}
+}
+
+// Neither the upload nor the check afterwards answered: the outcome is
+// unknown, which the caller must be able to tell from a plain failure.
+func TestCheckpointUnknown(t *testing.T) {
+	ws, f := openWrite(t)
+	os.WriteFile(filepath.Join(ws.PKIDir(), "index.txt"), []byte("maybe"), 0o600)
+	f.FailNextPut(errors.New("connection reset"), true)
+	f.FailNextHead(errors.New("timeout"))
+
+	err := ws.Checkpoint(context.Background())
+	if !errors.Is(err, ErrUploadUnknown) || !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("err = %v, want ErrUploadUnknown with the cause", err)
 	}
 }
 

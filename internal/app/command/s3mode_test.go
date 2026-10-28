@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,6 +193,28 @@ func TestS3CheckpointRejectedRollsBackACM(t *testing.T) {
 	}
 	if l := h.leftovers(); len(l) != 0 {
 		t.Errorf("temp folders left: %v", l)
+	}
+}
+
+// The checkpoint after the ACM import has an unknown outcome: the stored PKI
+// may record the certificate, so it stays in ACM and the error says what to
+// check, instead of a rollback that could orphan a saved user.
+func TestS3UnknownCheckpointKeepsACM(t *testing.T) {
+	h := newHarnessS3(t)
+	h.cloud.afterImport = func() {
+		h.s3.FailNextPut(errors.New("connection reset"), true)
+		h.s3.FailNextHead(errors.New("timeout"))
+	}
+
+	err := h.create("alice")
+	if !errors.Is(err, store.ErrUploadUnknown) || !strings.Contains(err.Error(), "by hand") {
+		t.Fatalf("err = %v, want ErrUploadUnknown with advice", err)
+	}
+	if len(h.cloud.certs) != 1 {
+		t.Errorf("ACM holds %d certificates, want the imported one kept", len(h.cloud.certs))
+	}
+	if !h.exists(filepath.Join(h.storedCopy(), "pki", "issued", "alice.crt")) {
+		t.Error("the landed archive should hold alice's certificate")
 	}
 }
 

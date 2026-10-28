@@ -56,6 +56,7 @@ type FakeS3 struct {
 	events    []string
 	failNext  error
 	failLand  bool
+	failHead  error
 	conflicts int
 }
 
@@ -88,6 +89,13 @@ func (f *FakeS3) FailNextPut(err error, land bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failNext, f.failLand = err, land
+}
+
+// FailNextHead makes the next HeadObject return err.
+func (f *FakeS3) FailNextHead(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failHead = err
 }
 
 // ConflictNextPuts makes the next n PutObject calls fail with 409 Conflict.
@@ -218,6 +226,10 @@ func (f *FakeS3) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*
 func (f *FakeS3) HeadObject(_ context.Context, in *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.failHead; err != nil {
+		f.failHead = nil
+		return nil, err
+	}
 	v, err := f.lookup("HeadObject", aws.ToString(in.Key), in.VersionId)
 	if err != nil {
 		return nil, err
@@ -318,6 +330,10 @@ func (f *FakeS3) GetPublicAccessBlock(context.Context, *s3.GetPublicAccessBlockI
 	cfg := f.Settings.PublicAccess
 	return &s3.GetPublicAccessBlockOutput{PublicAccessBlockConfiguration: &cfg}, nil
 }
+
+// APIError builds an S3 service error with the given status, e.g. for
+// FailNextPut.
+func APIError(op string, status int, code string) error { return apiError(op, status, code) }
 
 // apiError builds an error the way the AWS SDK returns S3 service errors, so
 // that classification by HTTP status works on it exactly as on a real one.

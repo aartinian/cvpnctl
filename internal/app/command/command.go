@@ -294,6 +294,12 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		if err == nil || recorded {
 			return
 		}
+		if errors.Is(err, store.ErrUploadUnknown) {
+			// The stored PKI may already record the certificate: undoing
+			// it in ACM or the PKI could break a user who is saved.
+			err = fmt.Errorf("%w\ncertificate %s was imported to ACM; if cvpnctl list does not show %s, delete it from ACM by hand", err, id, user)
+			return
+		}
 		if rmErr := e.pki.RemoveCertFiles(user); rmErr != nil {
 			err = errors.Join(err, fmt.Errorf("cleaning up after failure: %w", rmErr))
 		} else {
