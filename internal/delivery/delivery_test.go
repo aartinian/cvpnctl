@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -144,5 +145,30 @@ func TestRealPresigner(t *testing.T) {
 		if !strings.Contains(url, want) {
 			t.Errorf("link lacks %q:\n%s", want, url)
 		}
+	}
+}
+
+// More of bob's files than fit on one list page (left by crashed runs, or
+// many users named bob-…): Remove follows every page.
+func TestRemoveFollowsPages(t *testing.T) {
+	f := storetest.New()
+	f.PageSize = 2
+	d := New(f, &stubPresigner{}, sc)
+	for i := range 5 {
+		key := fmt.Sprintf("cvpnctl/delivery/bob-%032x.ovpn", i)
+		f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String(key), Body: strings.NewReader("old")})
+		d.Publish(context.Background(), fmt.Sprintf("bob-%d", i), []byte("other"), 24)
+	}
+
+	if err := d.Remove(context.Background(), "bob"); err != nil {
+		t.Fatal(err)
+	}
+	f.PageSize = 0
+	ks := strings.Join(keys(f), " ")
+	if regexp.MustCompile(`/bob-[0-9a-f]{32}\.ovpn`).MatchString(ks) {
+		t.Errorf("some of bob's links survived: %s", ks)
+	}
+	if n := strings.Count(ks, ".ovpn"); n != 5 {
+		t.Errorf("%d links left, want the other users' 5: %s", n, ks)
 	}
 }

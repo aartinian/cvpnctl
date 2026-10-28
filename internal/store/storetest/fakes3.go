@@ -54,6 +54,10 @@ type FakeS3 struct {
 	// another admin acting right after a checkpoint).
 	AfterPut func(key string)
 
+	// PageSize, if set, is how many entries a list call returns at most, so
+	// tests can see whether callers follow the pages; S3's limit is 1000.
+	PageSize int
+
 	mu        sync.Mutex
 	objects   map[string][]*version // oldest first
 	nextID    int
@@ -279,11 +283,19 @@ func (f *FakeS3) DeleteObject(_ context.Context, in *s3.DeleteObjectInput, _ ...
 func (f *FakeS3) ListObjectsV2(_ context.Context, in *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := &s3.ListObjectsV2Output{}
+	out := &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}
+	after := aws.ToString(in.ContinuationToken) // the last key of the previous page
 	for _, key := range f.keys(aws.ToString(in.Prefix)) {
-		if v := f.current(key); v != nil {
-			out.Contents = append(out.Contents, types.Object{Key: aws.String(key), ETag: aws.String(v.etag), LastModified: aws.Time(v.modified), Size: aws.Int64(int64(len(v.body)))})
+		v := f.current(key)
+		if v == nil || key <= after {
+			continue
 		}
+		if len(out.Contents) == f.pageSize() {
+			out.IsTruncated = aws.Bool(true)
+			out.NextContinuationToken = out.Contents[len(out.Contents)-1].Key
+			break
+		}
+		out.Contents = append(out.Contents, types.Object{Key: aws.String(key), ETag: aws.String(v.etag), LastModified: aws.Time(v.modified), Size: aws.Int64(int64(len(v.body)))})
 	}
 	out.KeyCount = aws.Int32(int32(len(out.Contents)))
 	return out, nil
@@ -306,6 +318,13 @@ func (f *FakeS3) ListObjectVersions(_ context.Context, in *s3.ListObjectVersions
 		}
 	}
 	return out, nil
+}
+
+func (f *FakeS3) pageSize() int {
+	if f.PageSize > 0 {
+		return f.PageSize
+	}
+	return 1000
 }
 
 func (f *FakeS3) keys(prefix string) []string {
