@@ -167,3 +167,11 @@ func TestStatusUnreadableCertificate(t *testing.T) {
 		t.Errorf("an unreadable certificate was reported as missing:\n%s", out)
 	}
 }
+
+func TestStatusCRLLabel(t *testing.T) {
+	h := newHarness(t)
+	out, _ := h.status()
+	if !strings.Contains(out, "CRL (PKI)") || strings.Contains(out, "CRL (local)") {
+		t.Errorf("want the CRL row labelled 'CRL (PKI)':\n%s", out)
+	}
+}

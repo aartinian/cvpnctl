@@ -109,11 +109,11 @@ func runStatus(ctx context.Context, opts *Options, now time.Time) error {
 	switch n, next, err := e.pki.CRLInfo(); {
 	case errors.Is(err, fs.ErrNotExist):
 		// A fresh PKI has no CRL until the first revocation or push-crl.
-		rows = append(rows, row{what: "CRL (local)", note: "none yet"})
+		rows = append(rows, row{what: "CRL (PKI)", note: "none yet"})
 	case err != nil:
 		return err
 	default:
-		local := expiryRow("CRL (local)", "", next, now)
+		local := expiryRow("CRL (PKI)", "", next, now)
 		if local.note == "" {
 			local.note = fmt.Sprintf("%d revoked", n)
 		}
