@@ -112,7 +112,7 @@ func TestAcquireHonoursCancel(t *testing.T) {
 func TestReleaseOnlyOwn(t *testing.T) {
 	f := storetest.New()
 	a, _ := Acquire(context.Background(), f, testStore, info("ari"))
-	if err := ForceUnlock(context.Background(), f, testStore); err != nil {
+	if err := forceUnlock(t, f); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Acquire(context.Background(), f, testStore, info("nils")); err != nil {
@@ -140,9 +140,38 @@ func TestReadLock(t *testing.T) {
 	}
 }
 
+// forceUnlock removes whatever lock is held now, as cvpnctl unlock does.
+func forceUnlock(t *testing.T, f *storetest.FakeS3) error {
+	t.Helper()
+	held, ok, err := ReadLock(context.Background(), f, testStore)
+	if err != nil || !ok {
+		t.Fatalf("no lock to remove: %v", err)
+	}
+	return ForceUnlock(context.Background(), f, testStore, held.ETag)
+}
+
 func TestForceUnlockWithoutLock(t *testing.T) {
-	if err := ForceUnlock(context.Background(), storetest.New(), testStore); err != nil {
+	if err := ForceUnlock(context.Background(), storetest.New(), testStore, `"gone"`); err != nil {
 		t.Errorf("ForceUnlock with no lock: %v", err)
+	}
+}
+
+// ari's lock is shown, then ari finishes and nils takes the lock before the
+// unlock goes through: nils keeps it.
+func TestForceUnlockLeavesNewLock(t *testing.T) {
+	f := storetest.New()
+	a, _ := Acquire(context.Background(), f, testStore, info("ari"))
+	shown, _, _ := ReadLock(context.Background(), f, testStore)
+	a.Release(context.Background())
+	if _, err := Acquire(context.Background(), f, testStore, info("nils")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ForceUnlock(context.Background(), f, testStore, shown.ETag); !errors.Is(err, ErrLockChanged) {
+		t.Errorf("err = %v, want ErrLockChanged", err)
+	}
+	if got, held, _ := ReadLock(context.Background(), f, testStore); !held || got.Host != "nils-mbp" {
+		t.Errorf("nils's lock was removed: held=%v info=%+v", held, got)
 	}
 }
 

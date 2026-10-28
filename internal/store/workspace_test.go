@@ -363,7 +363,7 @@ func TestVerify(t *testing.T) {
 	}
 
 	// The lock was forced and taken by someone else.
-	if err := ForceUnlock(context.Background(), f, testStore); err != nil {
+	if err := forceUnlock(t, f); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Acquire(context.Background(), f, testStore, LockInfo{ARN: "nils"}); err != nil {
@@ -419,7 +419,7 @@ func TestCloseAfterCancelledContext(t *testing.T) {
 func TestCloseAfterLockLost(t *testing.T) {
 	cfg, f := s3Env(t)
 	ws, _ := Open(context.Background(), cfg, Write, deps(f, "create alice"))
-	ForceUnlock(context.Background(), f, testStore)
+	forceUnlock(t, f)
 	other, _ := Acquire(context.Background(), f, testStore, info("nils"))
 
 	if err := ws.Close(context.Background()); err != nil {
