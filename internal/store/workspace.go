@@ -54,6 +54,11 @@ var ErrStoreEmpty = errors.New("store is empty; run cvpnctl store migrate")
 // read it, so its upload was refused and nothing after it may run.
 var ErrStoreChanged = errors.New("the stored PKI changed since this command read it (was the lock forced?); nothing after this point ran")
 
+// ErrUploadUnknown means a checkpoint's upload failed in a way that may or
+// may not have stored the archive, and checking afterwards failed too. The
+// caller must not undo anything the stored PKI might already record.
+var ErrUploadUnknown = errors.New("store: unknown whether the upload reached S3")
+
 // Open returns the workspace for cfg: the configured directories in local
 // mode, a downloaded copy in S3 mode (locked in Write mode).
 func Open(ctx context.Context, cfg *config.Config, mode Mode, d Deps) (Workspace, error) {

@@ -149,20 +149,28 @@ func (r *remote) Checkpoint(ctx context.Context) error {
 		SSEKMSKeyId:          aws.String(r.sc.KMSKeyID),
 		ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
 	})
-	switch {
-	case err == nil:
+	if err == nil {
 		r.etag, r.version = aws.ToString(out.ETag), aws.ToString(out.VersionId)
 		return nil
+	}
+	// Even a 412 is checked: when the SDK retries an upload whose response
+	// was lost, the retry fails its If-Match against the upload that landed.
+	landed, headErr := r.landed(ctx, data)
+	switch {
+	case landed:
+		return nil
+	case headErr != nil:
+		return fmt.Errorf("%w: the upload failed (%v), and checking whether it reached S3 failed too (%v); run cvpnctl status before retrying", ErrUploadUnknown, err, headErr)
 	case IsPreconditionFailed(err), IsNotFound(err):
 		return ErrStoreChanged
 	}
-	return r.settleUpload(ctx, data, err)
+	return fmt.Errorf("store: the upload did not reach S3: %w", err)
 }
 
-// settleUpload finds out whether an upload that returned putErr reached S3,
-// by comparing the stored archive's checksum with the one we sent. It uses
-// its own context, because putErr may be the caller's context ending.
-func (r *remote) settleUpload(ctx context.Context, data []byte, putErr error) error {
+// landed reports whether the stored archive is data, by comparing its checksum
+// with the one we sent, and adopts its ETag if so. It uses its own context,
+// because the failed upload may be the caller's context ending.
+func (r *remote) landed(ctx context.Context, data []byte) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
 	defer cancel()
 	head, err := r.s3.HeadObject(ctx, &s3.HeadObjectInput{
@@ -170,15 +178,18 @@ func (r *remote) settleUpload(ctx context.Context, data []byte, putErr error) er
 		Key:          aws.String(r.sc.Key(archiveKey)),
 		ChecksumMode: types.ChecksumModeEnabled,
 	})
-	if err != nil {
-		return fmt.Errorf("store: the upload failed (%w), and checking whether it reached S3 failed too (%v); run cvpnctl status before retrying", putErr, err)
+	switch {
+	case IsNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, err
 	}
 	sum := sha256.Sum256(data)
-	if aws.ToString(head.ChecksumSHA256) == base64.StdEncoding.EncodeToString(sum[:]) {
-		r.etag, r.version = aws.ToString(head.ETag), aws.ToString(head.VersionId)
-		return nil
+	if aws.ToString(head.ChecksumSHA256) != base64.StdEncoding.EncodeToString(sum[:]) {
+		return false, nil
 	}
-	return fmt.Errorf("store: the upload did not reach S3: %w", putErr)
+	r.etag, r.version = aws.ToString(head.ETag), aws.ToString(head.VersionId)
+	return true, nil
 }
 
 func (r *remote) Close(ctx context.Context) error {
