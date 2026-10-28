@@ -23,16 +23,15 @@ func NewListCmd(opts *Options) *cobra.Command {
 		Use:   "list",
 		Short: "List managed users with certificate expiry and provider IDs",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runList(opts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runList(cmd.Context(), opts)
 		},
 	}
 }
 
 // runList reads only the config, the state file, and the PKI; it needs no
 // provider credentials (in S3 mode, only read access to the store).
-func runList(opts *Options) error {
-	ctx := context.Background()
+func runList(ctx context.Context, opts *Options) error {
 	cfg, err := opts.loadConfig()
 	if err != nil {
 		return err
