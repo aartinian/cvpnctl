@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
+	"github.com/aartinian/cvpnctl/internal/state"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -70,7 +71,19 @@ func openRemote(ctx context.Context, sc config.StoreConfig, mode Mode, d Deps) (
 
 	out, err := d.S3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(archiveKey))})
 	if IsNotFound(err) {
-		return nil, ErrStoreEmpty
+		deleted, derr := Deleted(ctx, d.S3, sc)
+		switch {
+		case derr != nil:
+			return nil, derr
+		case !deleted:
+			return nil, ErrStoreEmpty
+		case mode != Recover:
+			return nil, ErrStoreDeleted
+		}
+		// Restore into the gap; the empty ETag makes the checkpoint
+		// require that the archive is still absent.
+		r.damaged = errors.New("store: there is no current archive (it was deleted)")
+		return r, r.prepareDirs()
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: download the PKI: %w", err)
@@ -93,12 +106,17 @@ func openRemote(ctx context.Context, sc config.StoreConfig, mode Mode, d Deps) (
 			return nil, err
 		}
 	}
+	return r, r.prepareDirs()
+}
+
+// prepareDirs creates the folders commands write into.
+func (r *remote) prepareDirs() error {
 	for _, dir := range []string{r.StateDir(), filepath.Dir(r.TemplatePath()), r.OutDir()} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("store: %w", err)
+			return fmt.Errorf("store: %w", err)
 		}
 	}
-	return r, nil
+	return nil
 }
 
 // TempDir creates a private cvpnctl-* folder in the system temp directory
@@ -128,6 +146,8 @@ func (r *remote) Verify(ctx context.Context) error {
 	}
 	out, err := r.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(r.sc.Bucket), Key: aws.String(r.sc.Key(archiveKey))})
 	switch {
+	case IsNotFound(err) && r.etag == "": // still absent, as when we opened it
+		return nil
 	case IsNotFound(err):
 		return ErrStoreChanged
 	case err != nil:
@@ -138,13 +158,19 @@ func (r *remote) Verify(ctx context.Context) error {
 	return nil
 }
 
-// unpack extracts data into the workspace and checks it holds a PKI.
+// unpack extracts data into the workspace and checks it holds what every
+// command reads: a PKI with its index, and parseable state.
 func (r *remote) unpack(data []byte) error {
 	if err := Unpack(data, r.root); err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(r.PKIDir(), "ca.crt")); err != nil {
-		return errors.New("store: the stored archive has no pki/ca.crt")
+	for _, name := range []string{"ca.crt", "index.txt"} {
+		if _, err := os.Stat(filepath.Join(r.PKIDir(), name)); err != nil {
+			return fmt.Errorf("store: the stored archive has no pki/%s", name)
+		}
+	}
+	if _, err := state.Load(r.StateDir()); err != nil {
+		return fmt.Errorf("store: the stored archive's state is unreadable: %w", err)
 	}
 	return nil
 }
@@ -174,17 +200,22 @@ func (r *remote) Checkpoint(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	out, err := r.s3.PutObject(ctx, &s3.PutObjectInput{
+	in := &s3.PutObjectInput{
 		Bucket:               aws.String(r.sc.Bucket),
 		Key:                  aws.String(r.sc.Key(archiveKey)),
 		Body:                 bytes.NewReader(data),
-		IfMatch:              aws.String(r.etag),
 		ContentType:          aws.String("application/gzip"),
 		Metadata:             map[string]string{"cvpnctl-arn": r.caller},
 		ServerSideEncryption: types.ServerSideEncryptionAwsKms,
 		SSEKMSKeyId:          aws.String(r.sc.KMSKeyID),
 		ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
-	})
+	}
+	if r.etag == "" { // restoring a deleted archive: it must still be absent
+		in.IfNoneMatch = aws.String("*")
+	} else {
+		in.IfMatch = aws.String(r.etag)
+	}
+	out, err := r.s3.PutObject(ctx, in)
 	if err == nil {
 		r.etag, r.version = aws.ToString(out.ETag), aws.ToString(out.VersionId)
 		return nil

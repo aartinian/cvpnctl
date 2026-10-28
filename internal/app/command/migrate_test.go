@@ -3,6 +3,7 @@ package command
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,5 +147,20 @@ func TestMigrateUnreadableState(t *testing.T) {
 	}
 	if _, ok := h.s3.Object("cvpnctl/pki.tar.gz"); ok {
 		t.Error("an archive was uploaded without the state")
+	}
+}
+
+// Someone deleted the stored archive: migrate must not put a different PKI on
+// top of its history, but point to restore.
+func TestMigrateOntoDeletedStore(t *testing.T) {
+	h, local := localThenS3(t)
+	h.must(func() error { _, err := migrate(h, local); return err }())
+	h.s3.DeleteObject(context.Background(), &s3.DeleteObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz")})
+
+	if _, err := migrate(h, local); !errors.Is(err, store.ErrStoreDeleted) {
+		t.Fatalf("err = %v, want ErrStoreDeleted", err)
+	}
+	if _, ok := h.s3.Object("cvpnctl/pki.tar.gz"); ok {
+		t.Error("migrate wrote a new archive over the deleted one")
 	}
 }

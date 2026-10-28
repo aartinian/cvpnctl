@@ -23,6 +23,28 @@ type Version struct {
 }
 
 // Versions lists the archive's versions, newest first.
+// Deleted reports whether the archive has no current version but earlier
+// ones, as after someone deleted it in the versioned bucket.
+func Deleted(ctx context.Context, client S3API, sc config.StoreConfig) (bool, error) {
+	key := sc.Key(archiveKey)
+	out, err := client.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(sc.Bucket), Prefix: aws.String(key)})
+	if err != nil {
+		return false, fmt.Errorf("store: list versions: %w", err)
+	}
+	// The key sorts first, so its versions are on this page if anywhere.
+	earlier := false
+	for _, v := range out.Versions {
+		if aws.ToString(v.Key) != key {
+			continue
+		}
+		if aws.ToBool(v.IsLatest) {
+			return false, nil // there is a current version
+		}
+		earlier = true
+	}
+	return earlier, nil
+}
+
 func Versions(ctx context.Context, client S3API, sc config.StoreConfig) ([]Version, error) {
 	key := sc.Key(archiveKey)
 	var all []types.ObjectVersion

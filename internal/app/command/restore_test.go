@@ -3,6 +3,7 @@ package command
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -282,5 +283,25 @@ func TestRestoreLockNamesCaller(t *testing.T) {
 	info, held, _ := store.ReadLock(context.Background(), h.s3, storeCfg)
 	if !held || info.ARN != testCaller {
 		t.Errorf("lock = %+v, want it to name %s", info, testCaller)
+	}
+}
+
+// The current archive was deleted: restore still opens the store and warns
+// that it can only compare the endpoint's CRL.
+func TestRestoreDeletedCurrent(t *testing.T) {
+	h := newHarnessS3(t)
+	h.must(h.create("alice"))
+	good := h.version()
+	h.s3.DeleteObject(context.Background(), &s3.DeleteObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz")})
+
+	if err := h.create("bob"); !errors.Is(err, store.ErrStoreDeleted) {
+		t.Fatalf("create: err = %v, want ErrStoreDeleted", err)
+	}
+	out, err := restore(h, good, false)
+	if err == nil || (!strings.Contains(err.Error(), "not a terminal") && !strings.Contains(err.Error(), "aborted")) {
+		t.Fatalf("restore: err = %v, want it to stop at the typed confirmation", err)
+	}
+	if !strings.Contains(out, "no current archive") {
+		t.Errorf("no warning about the deleted archive:\n%s", out)
 	}
 }
