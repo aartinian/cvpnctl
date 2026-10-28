@@ -77,7 +77,7 @@ func runRestore(ctx context.Context, opts *Options, version string, yes bool) er
 	if !cfg.S3Mode() {
 		return errors.New("store restore requires `store` in the config")
 	}
-	e, err := opts.load(ctx, store.Write, "store restore "+version)
+	e, err := opts.load(ctx, store.Recover, "store restore "+version)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func runRestore(ctx context.Context, opts *Options, version string, yes bool) er
 
 	switch {
 	case d.dangerous() && yes:
-		return errors.New("--yes is not accepted when a restore would un-revoke certificates or lose track of valid ones")
+		return errors.New("--yes is not accepted when a restore would un-revoke certificates or lose track of valid ones, or when the current version is unusable")
 	case d.dangerous():
 		ok, err := confirmTyped("Type 'restore' to restore anyway; any other answer aborts:", "restore")
 		if err != nil {
@@ -145,11 +145,14 @@ type stateDiff struct {
 	unrevoked      []string // revoked now (locally or on the endpoint), valid in the target
 	untracked      []string // valid now, absent from the target's PKI: could never be revoked
 	revoked        []string // valid now, revoked in the target
+	damaged        error    // the current version is unusable, so the above is incomplete
 }
 
 // dangerous reports whether the restore would let someone keep or regain
-// access that the restored PKI can't take away again.
-func (d stateDiff) dangerous() bool { return len(d.unrevoked) > 0 || len(d.untracked) > 0 }
+// access that the restored PKI can't take away again, or can't tell.
+func (d stateDiff) dangerous() bool {
+	return len(d.unrevoked) > 0 || len(d.untracked) > 0 || d.damaged != nil
+}
 
 func (d stateDiff) print() {
 	line := func(label string, names []string) {
@@ -169,12 +172,15 @@ func (d stateDiff) print() {
 	if len(d.untracked) > 0 {
 		fmt.Printf("  ! certificates lost: %s would keep a valid certificate that the restored PKI doesn't know, so it could never be revoked; revoke them before restoring\n", strings.Join(d.untracked, ", "))
 	}
+	if d.damaged != nil {
+		fmt.Printf("  ! the current version is unusable (%v): only the endpoint's CRL was compared, so certificates issued after the restored version can't be listed and could never be revoked\n", d.damaged)
+	}
 }
 
 // diffWith compares the current workspace (and the endpoint's CRL) with the
 // state unpacked in target.
 func (e *env) diffWith(ctx context.Context, target string) (stateDiff, error) {
-	var d stateDiff
+	d := stateDiff{damaged: e.ws.Damaged()}
 	curUsers := names(e.users.All())
 	tgtUsers, tgtRevoked, err := readState(target)
 	if err != nil {
@@ -182,9 +188,11 @@ func (e *env) diffWith(ctx context.Context, target string) (stateDiff, error) {
 	}
 	d.added, d.removed = minus(tgtUsers, curUsers), minus(curUsers, tgtUsers)
 
-	curIndex, err := e.pki.Index()
-	if err != nil {
-		return d, err
+	var curIndex []easyrsa.IndexEntry
+	if d.damaged == nil {
+		if curIndex, err = e.pki.Index(); err != nil {
+			return d, err
+		}
 	}
 	nameOf := map[string]string{}
 	curRevoked := map[string]bool{}
