@@ -29,9 +29,15 @@ const maxArchiveSize = 10 << 20
 // top-level directories, links, devices, or more than maxArchiveSize of data.
 var ErrUnsafeArchive = errors.New("unsafe archive")
 
+// errTooLarge is what Pack returns for content Unpack would refuse.
+var errTooLarge = fmt.Errorf("store: pack: the PKI, state and template come to more than %d MB, which could not be read back; nothing was saved", maxArchiveSize>>20)
+
 // Pack archives the pki/, state/ and template/ directories under root as a
 // gzipped tar. pki/ must exist; the other two are optional. The output is
 // deterministic: entries are sorted, and times and owners are zeroed.
+//
+// It refuses to make an archive larger than Unpack accepts, because saving
+// one would leave a store that no command can open.
 func Pack(root string) ([]byte, error) {
 	if fi, err := os.Stat(filepath.Join(root, "pki")); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("store: pack: %s has no pki directory", root)
@@ -39,7 +45,9 @@ func Pack(root string) ([]byte, error) {
 
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
+	stream := &countingWriter{w: gz} // the tar stream, which Unpack limits
+	tw := tar.NewWriter(stream)
+	var total int64 // file contents so far, to stop before reading a huge file
 	for _, top := range topDirs {
 		dir := filepath.Join(root, top)
 		if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
@@ -60,6 +68,13 @@ func Pack(root string) ([]byte, error) {
 			case d.IsDir():
 				return tw.WriteHeader(&tar.Header{Name: name + "/", Typeflag: tar.TypeDir, Mode: 0o700, ModTime: time.Unix(0, 0)})
 			case d.Type().IsRegular():
+				fi, err := d.Info()
+				if err != nil {
+					return err
+				}
+				if total += fi.Size(); total > maxArchiveSize {
+					return errTooLarge
+				}
 				data, err := os.ReadFile(p)
 				if err != nil {
 					return err
@@ -73,6 +88,9 @@ func Pack(root string) ([]byte, error) {
 				return fmt.Errorf("%s is not a regular file or directory", name)
 			}
 		})
+		if errors.Is(err, errTooLarge) {
+			return nil, err
+		}
 		if err != nil {
 			return nil, fmt.Errorf("store: pack: %w", err)
 		}
@@ -80,10 +98,25 @@ func Pack(root string) ([]byte, error) {
 	if err := tw.Close(); err != nil {
 		return nil, fmt.Errorf("store: pack: %w", err)
 	}
+	if stream.n > maxArchiveSize {
+		return nil, errTooLarge
+	}
 	if err := gz.Close(); err != nil {
 		return nil, fmt.Errorf("store: pack: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// countingWriter counts the bytes written through it.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // Unpack extracts an archive made by Pack into root, which is created if
