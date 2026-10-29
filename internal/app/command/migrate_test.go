@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aartinian/cvpnctl/internal/state"
 	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -147,6 +148,22 @@ func TestMigrateUnreadableState(t *testing.T) {
 	}
 	if _, ok := h.s3.Object("cvpnctl/pki.tar.gz"); ok {
 		t.Error("an archive was uploaded without the state")
+	}
+}
+
+// A local state file that doesn't parse would make an archive every S3
+// command refuses: migrate stops before uploading it.
+func TestMigrateBadState(t *testing.T) {
+	h, local := localThenS3(t)
+	if err := os.WriteFile(filepath.Join(h.certsDir(), state.Filename), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := migrate(h, local); err == nil || !strings.Contains(err.Error(), state.Filename) {
+		t.Fatalf("err = %v, want the state file's parse error", err)
+	}
+	if _, ok := h.s3.Object("cvpnctl/pki.tar.gz"); ok {
+		t.Error("an archive with unreadable state was uploaded")
 	}
 }
 

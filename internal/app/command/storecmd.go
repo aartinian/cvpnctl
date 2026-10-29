@@ -196,6 +196,10 @@ func stage(src *config.Config, dir string) error {
 		if err := copyFile(stateFile, filepath.Join(dir, "state", state.Filename)); err != nil {
 			return err
 		}
+		// Every S3 command refuses an archive whose state doesn't parse.
+		if _, err := state.Load(filepath.Join(dir, "state")); err != nil {
+			return fmt.Errorf("%s: %w", stateFile, err)
+		}
 	case !errors.Is(err, fs.ErrNotExist):
 		// Unreadable is not absent: migrating without it would drop every
 		// user's ACM mapping.

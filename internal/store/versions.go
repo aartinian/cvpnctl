@@ -22,29 +22,30 @@ type Version struct {
 	Writer   string // IAM ARN recorded by the command that wrote it, if any
 }
 
-// Versions lists the archive's versions, newest first.
 // Deleted reports whether the archive has no current version but earlier
 // ones, as after someone deleted it in the versioned bucket.
 func Deleted(ctx context.Context, client S3API, sc config.StoreConfig) (bool, error) {
 	key := sc.Key(archiveKey)
-	out, err := client.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(sc.Bucket), Prefix: aws.String(key)})
-	if err != nil {
-		return false, fmt.Errorf("store: list versions: %w", err)
-	}
-	// The key sorts first, so its versions are on this page if anywhere.
-	earlier := false
-	for _, v := range out.Versions {
-		if aws.ToString(v.Key) != key {
-			continue
+	in := &s3.ListObjectVersionsInput{Bucket: aws.String(sc.Bucket), Prefix: aws.String(key)}
+	for { // delete markers fill pages too, so the versions may come later
+		out, err := client.ListObjectVersions(ctx, in)
+		if err != nil {
+			return false, fmt.Errorf("store: list versions: %w", err)
 		}
-		if aws.ToBool(v.IsLatest) {
-			return false, nil // there is a current version
+		for _, v := range out.Versions {
+			if aws.ToString(v.Key) == key {
+				// Newest first: the first version is current unless deleted.
+				return !aws.ToBool(v.IsLatest), nil
+			}
 		}
-		earlier = true
+		if !aws.ToBool(out.IsTruncated) {
+			return false, nil
+		}
+		in.KeyMarker, in.VersionIdMarker = out.NextKeyMarker, out.NextVersionIdMarker
 	}
-	return earlier, nil
 }
 
+// Versions lists the archive's versions, newest first.
 func Versions(ctx context.Context, client S3API, sc config.StoreConfig) ([]Version, error) {
 	key := sc.Key(archiveKey)
 	var all []types.ObjectVersion
