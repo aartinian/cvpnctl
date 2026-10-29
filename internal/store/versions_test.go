@@ -59,6 +59,11 @@ func TestDeleted(t *testing.T) {
 	if d, _ := Deleted(context.Background(), f, testStore); !d {
 		t.Error("not Deleted after the archive was deleted")
 	}
+	// The first page holds only the delete marker.
+	f.PageSize = 1
+	if d, err := Deleted(context.Background(), f, testStore); !d || err != nil {
+		t.Errorf("versions behind a page of delete markers: %v, %v", d, err)
+	}
 }
 
 // The current archive was deleted (a delete marker on top of its versions):
