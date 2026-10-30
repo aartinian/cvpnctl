@@ -54,14 +54,15 @@ func awsTestEnv(t *testing.T) {
 
 func s3Config() *config.Config {
 	return &config.Config{
-		AWS:   config.AWSConfig{Region: "eu-central-1"},
-		Store: &config.StoreConfig{Bucket: "acme-vpn-pki", Prefix: "cvpnctl/", KMSKeyID: "alias/cvpnctl", LinkHours: 24},
+		Provider: "aws",
+		AWS:      config.AWSConfig{Region: "eu-central-1"},
+		Store:    &config.StoreConfig{Bucket: "acme-vpn-pki", Prefix: "cvpnctl/", KMSKeyID: "alias/cvpnctl", LinkHours: 24},
 	}
 }
 
 func TestNewS3(t *testing.T) {
 	awsTestEnv(t)
-	client, caller, err := newS3(context.Background(), s3Config())
+	client, caller, err := (&awsSession{}).newS3(context.Background(), s3Config())
 	if err != nil {
 		t.Fatalf("newS3: %v", err)
 	}
@@ -75,7 +76,7 @@ func TestNewS3(t *testing.T) {
 // bucket, signed with the configured credentials.
 func TestNewPresigner(t *testing.T) {
 	awsTestEnv(t)
-	p, err := newPresigner(context.Background(), s3Config())
+	p, err := (&awsSession{}).newPresigner(context.Background(), s3Config())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,30 @@ func TestNewS3MissingProfile(t *testing.T) {
 	awsTestEnv(t)
 	cfg := s3Config()
 	cfg.AWS.Profile = "does-not-exist"
-	if _, _, err := newS3(context.Background(), cfg); err == nil {
+	if _, _, err := (&awsSession{}).newS3(context.Background(), cfg); err == nil {
 		t.Error("a missing AWS profile was accepted")
+	}
+}
+
+// One run resolves credentials once: the provider, the S3 client and the
+// presigner share the config loaded for the first of them.
+func TestAWSSessionLoadsOnce(t *testing.T) {
+	awsTestEnv(t)
+	s := &awsSession{}
+	cfg := s3Config()
+	if _, _, err := s.newS3(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	// Without credentials a fresh load would fail; the loaded config is reused.
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+	if _, err := s.newProvider(context.Background(), cfg); err != nil {
+		t.Errorf("newProvider loaded again: %v", err)
+	}
+	if _, err := s.newPresigner(context.Background(), cfg); err != nil {
+		t.Errorf("newPresigner loaded again: %v", err)
+	}
+	if len(s.cfgs) != 1 {
+		t.Errorf("%d configs loaded, want 1", len(s.cfgs))
 	}
 }

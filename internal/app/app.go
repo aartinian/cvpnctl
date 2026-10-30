@@ -6,13 +6,13 @@ import (
 	"errors"
 
 	"github.com/aartinian/cvpnctl/internal/app/command"
-	"github.com/aartinian/cvpnctl/internal/provider"
 	"github.com/spf13/cobra"
 )
 
 // Run executes the CLI with args (without the program name).
 func Run(ctx context.Context, version string, args []string) error {
-	opts := &command.Options{NewProvider: provider.New, NewS3: newS3, NewPresigner: newPresigner}
+	aws := &awsSession{}
+	opts := &command.Options{NewProvider: aws.newProvider, NewS3: aws.newS3, NewPresigner: aws.newPresigner}
 
 	root := &cobra.Command{
 		Use:   "cvpnctl",

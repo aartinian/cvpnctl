@@ -1,15 +1,11 @@
 // Package provider defines the interface for cloud certificate store backends.
 // Commands depend only on this interface; the concrete implementation is
-// selected from the config's provider field.
+// selected from the config's provider field (see internal/app).
 package provider
 
 import (
 	"context"
-	"fmt"
 	"time"
-
-	"github.com/aartinian/cvpnctl/internal/config"
-	"github.com/aartinian/cvpnctl/internal/provider/aws"
 )
 
 // CertStore manages certificates in a cloud provider.
@@ -40,14 +36,4 @@ type CertStore interface {
 	// ExportCRL returns the CRL the endpoint currently holds, in PEM, or nil
 	// if it has none.
 	ExportCRL(ctx context.Context) ([]byte, error)
-}
-
-// New returns the CertStore for the provider named in cfg.
-func New(ctx context.Context, cfg *config.Config) (CertStore, error) {
-	switch cfg.Provider {
-	case "aws":
-		return aws.New(ctx, &cfg.AWS)
-	default:
-		return nil, fmt.Errorf("provider %q is not supported (supported: aws)", cfg.Provider)
-	}
 }
