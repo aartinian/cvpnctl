@@ -167,6 +167,29 @@ func TestMigrateBadState(t *testing.T) {
 	}
 }
 
+// A PKI that no S3 command could open must never become the store's first
+// version: with no earlier one to restore, the store could not be fixed.
+func TestMigrateBadPKI(t *testing.T) {
+	for name, breakPKI := range map[string]func(pki string) error{
+		"no index": func(pki string) error { return os.Remove(filepath.Join(pki, "index.txt")) },
+		"bad CRL":  func(pki string) error { return os.WriteFile(filepath.Join(pki, "crl.pem"), []byte("garbage"), 0o600) },
+		"bad CA":   func(pki string) error { return os.WriteFile(filepath.Join(pki, "ca.crt"), []byte("garbage"), 0o600) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, local := localThenS3(t)
+			if err := breakPKI(h.pki); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := migrate(h, local); err == nil || !strings.Contains(err.Error(), "nothing was uploaded") {
+				t.Fatalf("err = %v, want a refusal before the upload", err)
+			}
+			if _, ok := h.s3.Object("cvpnctl/pki.tar.gz"); ok {
+				t.Error("an unusable PKI was uploaded")
+			}
+		})
+	}
+}
+
 // Someone deleted the stored archive: migrate must not put a different PKI on
 // top of its history, but point to restore.
 func TestMigrateOntoDeletedStore(t *testing.T) {
