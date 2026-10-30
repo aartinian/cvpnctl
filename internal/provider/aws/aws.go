@@ -59,17 +59,14 @@ func LoadConfig(ctx context.Context, cfg *config.AWSConfig) (aws.Config, error) 
 	return awsCfg, nil
 }
 
-// New returns a Provider configured from cfg.
-func New(ctx context.Context, cfg *config.AWSConfig) (*Provider, error) {
-	awsCfg, err := LoadConfig(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
+// NewFromConfig returns a Provider for the Client VPN endpoint endpointID,
+// using awsCfg (from LoadConfig).
+func NewFromConfig(awsCfg aws.Config, endpointID string) *Provider {
 	return &Provider{
 		acm:        acm.NewFromConfig(awsCfg),
 		ec2:        ec2.NewFromConfig(awsCfg),
-		endpointID: cfg.VPNEndpointID,
-	}, nil
+		endpointID: endpointID,
+	}
 }
 
 // ImportCert uploads the certificate, private key, and CA chain to ACM.
