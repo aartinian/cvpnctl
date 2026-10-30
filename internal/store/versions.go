@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/config"
@@ -12,6 +13,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+// headConcurrency bounds the HEAD requests Versions has in flight.
+const headConcurrency = 8
 
 // Version is one stored state of the PKI.
 type Version struct {
@@ -63,16 +67,25 @@ func Versions(ctx context.Context, client S3API, sc config.StoreConfig) ([]Versi
 	}
 	var vs []Version
 	for _, v := range all {
-		if aws.ToString(v.Key) != key {
-			continue
+		if aws.ToString(v.Key) == key {
+			vs = append(vs, Version{ID: aws.ToString(v.VersionId), Modified: aws.ToTime(v.LastModified), Size: aws.ToInt64(v.Size), Current: aws.ToBool(v.IsLatest)})
 		}
-		version := Version{ID: aws.ToString(v.VersionId), Modified: aws.ToTime(v.LastModified), Size: aws.ToInt64(v.Size), Current: aws.ToBool(v.IsLatest)}
-		head, err := client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(key), VersionId: v.VersionId})
-		if err == nil {
-			version.Writer = head.Metadata["cvpnctl-arn"]
-		}
-		vs = append(vs, version)
 	}
+	// The writer is only in each version's metadata: one HEAD per version,
+	// a few at a time. Best-effort: a failed HEAD leaves Writer empty.
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, headConcurrency)
+	for i := range vs {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			head, err := client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(key), VersionId: aws.String(vs[i].ID)})
+			if err == nil {
+				vs[i].Writer = head.Metadata["cvpnctl-arn"]
+			}
+		})
+	}
+	wg.Wait()
 	sort.SliceStable(vs, func(i, j int) bool { return vs[i].Modified.After(vs[j].Modified) })
 	return vs, nil
 }

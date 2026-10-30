@@ -47,36 +47,15 @@ var MinVersion = []int{3, 2, 7}
 
 var versionLine = regexp.MustCompile(`(?m)^Version:\s+(\d+)\.(\d+)\.(\d+)\s*$`)
 
-// CheckVersion fails unless the configured easyrsa script is a release of
-// MinVersion or newer. Git checkouts report "~VER~" rather than a version and
-// are rejected too.
-func (c *Client) CheckVersion() error {
-	out, err := c.versionOutput()
-	if err != nil {
-		return err
-	}
-	return checkVersionOutput(c.script(), out)
-}
-
-// Version returns the EasyRSA version, e.g. "3.2.7".
-func (c *Client) Version() (string, error) {
-	out, err := c.versionOutput()
-	if err != nil {
-		return "", err
-	}
-	m := versionLine.FindStringSubmatch(out)
-	if m == nil {
-		return "", fmt.Errorf("easyrsa: can't tell the version of %s", c.script())
-	}
-	return m[1] + "." + m[2] + "." + m[3], nil
-}
-
-func (c *Client) versionOutput() (string, error) {
+// CheckVersion returns the version of the configured easyrsa script, e.g.
+// "3.2.7", and fails unless it is a release of MinVersion or newer. Git
+// checkouts report "~VER~" rather than a version and are rejected too.
+func (c *Client) CheckVersion() (string, error) {
 	out, err := exec.Command(c.script(), "--version").Output()
 	if err != nil {
 		return "", fmt.Errorf("easyrsa: run %s --version: %w", c.script(), err)
 	}
-	return string(out), nil
+	return checkVersionOutput(c.script(), string(out))
 }
 
 // Dir returns the directory of the easyrsa script.
@@ -84,20 +63,20 @@ func (c *Client) Dir() string {
 	return c.cfg.Path
 }
 
-func checkVersionOutput(script, out string) error {
+func checkVersionOutput(script, out string) (string, error) {
 	want := fmt.Sprintf("%d.%d.%d", MinVersion[0], MinVersion[1], MinVersion[2])
 	m := versionLine.FindStringSubmatch(out)
 	if m == nil {
-		return fmt.Errorf("easyrsa: can't tell the version of %s (a git checkout instead of a release?); cvpnctl needs an EasyRSA release, %s or later", script, want)
+		return "", fmt.Errorf("easyrsa: can't tell the version of %s (a git checkout instead of a release?); cvpnctl needs an EasyRSA release, %s or later", script, want)
 	}
 	got := make([]int, 3)
 	for i := range got {
 		got[i], _ = strconv.Atoi(m[i+1]) // the regexp guarantees digits
 	}
 	if slices.Compare(got, MinVersion) < 0 {
-		return fmt.Errorf("easyrsa: %s is version %s.%s.%s; cvpnctl needs %s or later", script, m[1], m[2], m[3], want)
+		return "", fmt.Errorf("easyrsa: %s is version %s.%s.%s; cvpnctl needs %s or later", script, m[1], m[2], m[3], want)
 	}
-	return nil
+	return m[1] + "." + m[2] + "." + m[3], nil
 }
 
 // Files returns where the PKI keeps user's certificate, key, and the CA.

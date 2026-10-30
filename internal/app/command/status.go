@@ -60,12 +60,8 @@ func runStatus(ctx context.Context, opts *Options, now time.Time) error {
 	}
 	defer e.close()
 
-	version, err := e.pki.Version()
-	if err != nil {
-		return err
-	}
 	fmt.Printf("config     %s\n", ui.Path(e.cfg.Path))
-	fmt.Printf("easyrsa    %s (%s)\n", version, ui.Path(e.pki.Dir()))
+	fmt.Printf("easyrsa    %s (%s)\n", e.easyrsaVersion, ui.Path(e.pki.Dir()))
 	fmt.Printf("endpoint   %s (%s)\n", e.cfg.AWS.VPNEndpointID, e.cfg.AWS.Region)
 	if e.ws.Remote() {
 		fmt.Printf("store      s3://%s/%s\n", e.cfg.Store.Bucket, e.cfg.Store.Prefix)

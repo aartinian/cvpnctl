@@ -49,6 +49,8 @@ type env struct {
 	cloud provider.CertStore
 	ovpn  *ovpn.Generator
 
+	easyrsaVersion string // as CheckVersion found it
+
 	deliver *delivery.Deliverer // nil in local mode
 	s3      store.S3API         // nil in local mode
 }
@@ -81,7 +83,8 @@ func (o *Options) load(ctx context.Context, mode store.Mode, command string) (*e
 
 // loadWith is load for a config the caller has already loaded.
 func (o *Options) loadWith(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (*env, error) {
-	if err := easyrsa.New(&cfg.EasyRSA, o.Verbose).CheckVersion(); err != nil {
+	version, err := easyrsa.New(&cfg.EasyRSA, o.Verbose).CheckVersion()
+	if err != nil {
 		return nil, err
 	}
 	cloud, err := o.NewProvider(ctx, cfg)
@@ -92,7 +95,7 @@ func (o *Options) loadWith(ctx context.Context, cfg *config.Config, mode store.M
 	if err != nil {
 		return nil, err
 	}
-	e.cloud = cloud
+	e.cloud, e.easyrsaVersion = cloud, version
 	return e, nil
 }
 

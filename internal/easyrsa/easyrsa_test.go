@@ -29,7 +29,7 @@ func TestCheckVersionOutput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := checkVersionOutput("/x/easyrsa", tt.out)
+			_, err := checkVersionOutput("/x/easyrsa", tt.out)
 			switch {
 			case tt.wantErr == "" && err != nil:
 				t.Errorf("rejected: %v", err)
