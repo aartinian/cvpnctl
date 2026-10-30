@@ -150,6 +150,11 @@ func runMigrate(ctx context.Context, opts *Options, from string) error {
 	defer func() { _ = os.RemoveAll(staging) }()
 	var files map[string][32]byte
 	if err := step("packing the PKI", "PKI packed", func() (string, error) {
+		// Checked before the upload: a first archive no command can open
+		// could not be replaced, as it has no earlier version to restore.
+		if err := checkPKI(src.EasyRSA.PKIDir); err != nil {
+			return "", fmt.Errorf("%w; nothing was uploaded", err)
+		}
 		if err := stage(src, staging); err != nil {
 			return "", err
 		}
@@ -261,7 +266,7 @@ func checksums(dir string) (map[string][32]byte, error) {
 }
 
 // verifyArchive unpacks archive and checks every file against want, and that
-// the CA, the index and (if present) the CRL can be read.
+// the PKI in it passes checkPKI.
 func verifyArchive(archive []byte, want map[string][32]byte) (int, error) {
 	dir, err := store.TempDir()
 	if err != nil {
@@ -283,17 +288,26 @@ func verifyArchive(archive []byte, want map[string][32]byte) (int, error) {
 			return 0, fmt.Errorf("%s differs in the archive", p)
 		}
 	}
-	pki := easyrsa.New(&config.EasyRSAConfig{PKIDir: filepath.Join(dir, "pki")}, false)
-	if _, err := pki.CACert(); err != nil {
+	if err := checkPKI(filepath.Join(dir, "pki")); err != nil {
 		return 0, err
 	}
+	return len(got), nil
+}
+
+// checkPKI checks that the CA, the index and (if present) the CRL in pkiDir
+// can be read, as every S3 command needs them.
+func checkPKI(pkiDir string) error {
+	pki := easyrsa.New(&config.EasyRSAConfig{PKIDir: pkiDir}, false)
+	if _, err := pki.CACert(); err != nil {
+		return err
+	}
 	if _, err := pki.RevokedSerials(); err != nil {
-		return 0, err
+		return err
 	}
 	if _, err := os.Stat(pki.CRLPath()); err == nil {
 		if _, _, err := pki.CRLInfo(); err != nil {
-			return 0, err
+			return err
 		}
 	}
-	return len(got), nil
+	return nil
 }
