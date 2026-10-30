@@ -19,11 +19,11 @@ import (
 // version returns the current archive version in the fake bucket.
 func (h *harness) version() string {
 	h.t.Helper()
-	v, ok, err := store.Head(context.Background(), h.s3, storeCfg)
+	v, ok, err := store.Current(context.Background(), h.s3, storeCfg)
 	if err != nil || !ok {
 		h.t.Fatalf("no current version: %v", err)
 	}
-	return v
+	return v.ID
 }
 
 func restore(h *harness, version string, yes bool) (string, error) {

@@ -132,15 +132,15 @@ func runMigrate(ctx context.Context, opts *Options, from string) error {
 			ui.Warn("%v", err)
 		}
 	}()
+	if v, exists, err := store.Current(ctx, client, sc); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("%w (version %s); migrate never overwrites it", store.ErrStoreExists, v.ID)
+	}
 	if deleted, err := store.Deleted(ctx, client, sc); err != nil {
 		return err
 	} else if deleted {
 		return store.ErrStoreDeleted
-	}
-	if version, exists, err := store.Head(ctx, client, sc); err != nil {
-		return err
-	} else if exists {
-		return fmt.Errorf("%w (version %s); migrate never overwrites it", store.ErrStoreExists, version)
 	}
 
 	staging, err := store.TempDir()

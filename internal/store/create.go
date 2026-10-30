@@ -16,18 +16,6 @@ import (
 // ErrStoreExists means the bucket already holds a PKI.
 var ErrStoreExists = errors.New("the store already holds a PKI")
 
-// Head returns the current archive's version, or ok=false if there is none.
-func Head(ctx context.Context, client S3API, sc config.StoreConfig) (version string, ok bool, err error) {
-	out, err := client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(archiveKey))})
-	if IsNotFound(err) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, fmt.Errorf("store: look for an existing PKI: %w", err)
-	}
-	return aws.ToString(out.VersionId), true, nil
-}
-
 // Create uploads archive as the store's first PKI, only if none exists yet
 // (If-None-Match), then downloads it again and checks it arrived intact. It
 // never overwrites an existing archive. An upload that fails without a clear

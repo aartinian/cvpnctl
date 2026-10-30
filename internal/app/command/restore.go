@@ -229,10 +229,7 @@ func (e *env) diffWith(ctx context.Context, target string) (stateDiff, error) {
 	seen := map[string]bool{}
 	for serial := range union(curRevoked, onEndpoint) {
 		if !tgtRevoked[serial] {
-			name := nameOf[serial]
-			if name == "" {
-				name = "serial " + serial
-			}
+			name := orDefault(nameOf[serial], "serial "+serial)
 			if !seen[name] {
 				d.unrevoked, seen[name] = append(d.unrevoked, name), true
 			}

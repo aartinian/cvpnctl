@@ -64,6 +64,10 @@ type StoreConfig struct {
 // DefaultLinkHours is how long a .ovpn link is valid unless configured.
 const DefaultLinkHours = 24
 
+// MaxLinkHours is the longest a .ovpn link can be valid: SigV4 presigned URLs
+// signed with IAM user credentials last at most 7 days.
+const MaxLinkHours = 168
+
 // S3Mode reports whether the PKI lives in S3 rather than in local directories.
 func (c *Config) S3Mode() bool {
 	return c.Store != nil
@@ -274,8 +278,8 @@ func validateStore(st *StoreConfig) error {
 		return errors.New("config: store.bucket is required")
 	case st.KMSKeyID == "":
 		return errors.New("config: store.kms_key_id is required")
-	case st.LinkHours < 1 || st.LinkHours > 168:
-		return fmt.Errorf("config: store.link_hours must be 1–168, got %d", st.LinkHours)
+	case st.LinkHours < 1 || st.LinkHours > MaxLinkHours:
+		return fmt.Errorf("config: store.link_hours must be 1–%d, got %d", MaxLinkHours, st.LinkHours)
 	}
 	return nil
 }

@@ -33,15 +33,19 @@ func runCreate(ctx context.Context, opts *Options, user string, hoursFlag int) e
 	if err := validateUser(user); err != nil {
 		return err
 	}
-	e, err := opts.load(ctx, store.Write, "create "+user)
+	cfg, err := opts.loadConfig()
+	if err != nil {
+		return err
+	}
+	hours, err := linkHours(cfg, hoursFlag) // before the lock is taken
+	if err != nil {
+		return err
+	}
+	e, err := opts.loadWith(ctx, cfg, store.Write, "create "+user)
 	if err != nil {
 		return err
 	}
 	defer e.close()
-	hours, err := linkHours(e.cfg, hoursFlag)
-	if err != nil {
-		return err
-	}
 
 	if _, ok := e.users.Get(user); ok {
 		return fmt.Errorf("user %q already exists; use 'cvpnctl renew' to reissue their certificate", user)
@@ -51,7 +55,7 @@ func runCreate(ctx context.Context, opts *Options, user string, hoursFlag int) e
 	}
 
 	ui.Title("Creating %s", user)
-	iss, err := e.issue(ctx, user)
+	ovpnPath, err := e.issue(ctx, user)
 	if err != nil {
 		return err
 	}
@@ -65,6 +69,6 @@ func runCreate(ctx context.Context, opts *Options, user string, hoursFlag int) e
 		sendLink(user, url, "")
 		return nil
 	}
-	ui.Done("Send %s to %s securely.", ui.Path(iss.ovpnPath), user)
+	ui.Done("Send %s to %s securely.", ui.Path(ovpnPath), user)
 	return nil
 }

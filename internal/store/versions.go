@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sort"
 	"sync"
 	"time"
 
@@ -49,7 +48,7 @@ func Deleted(ctx context.Context, client S3API, sc config.StoreConfig) (bool, er
 	}
 }
 
-// Versions lists the archive's versions, newest first.
+// Versions lists the archive's versions, newest first, as S3 lists them.
 func Versions(ctx context.Context, client S3API, sc config.StoreConfig) ([]Version, error) {
 	key := sc.Key(archiveKey)
 	var all []types.ObjectVersion
@@ -86,7 +85,6 @@ func Versions(ctx context.Context, client S3API, sc config.StoreConfig) ([]Versi
 		})
 	}
 	wg.Wait()
-	sort.SliceStable(vs, func(i, j int) bool { return vs[i].Modified.After(vs[j].Modified) })
 	return vs, nil
 }
 

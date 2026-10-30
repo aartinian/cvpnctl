@@ -40,7 +40,15 @@ func runRenew(ctx context.Context, opts *Options, user string, hoursFlag int) er
 	if err := validateUser(user); err != nil {
 		return err
 	}
-	e, err := opts.load(ctx, store.Write, "renew "+user)
+	cfg, err := opts.loadConfig()
+	if err != nil {
+		return err
+	}
+	hours, err := linkHours(cfg, hoursFlag) // before the lock is taken
+	if err != nil {
+		return err
+	}
+	e, err := opts.loadWith(ctx, cfg, store.Write, "renew "+user)
 	if err != nil {
 		return err
 	}
@@ -51,10 +59,6 @@ func runRenew(ctx context.Context, opts *Options, user string, hoursFlag int) er
 		return fmt.Errorf("user %q not found; use 'cvpnctl create' first", user)
 	}
 	oldID := record.ProviderID
-	hours, err := linkHours(e.cfg, hoursFlag)
-	if err != nil {
-		return err
-	}
 
 	ui.Title("Renewing %s", user)
 
@@ -62,7 +66,7 @@ func runRenew(ctx context.Context, opts *Options, user string, hoursFlag int) er
 		return err
 	}
 
-	iss, err := e.issue(ctx, user)
+	ovpnPath, err := e.issue(ctx, user)
 	if err != nil {
 		return err
 	}
@@ -90,6 +94,6 @@ func runRenew(ctx context.Context, opts *Options, user string, hoursFlag int) er
 		sendLink(user, url, "Their old .ovpn no longer works.")
 		return nil
 	}
-	ui.Done("Send %s to %s securely; the old one no longer works.", ui.Path(iss.ovpnPath), user)
+	ui.Done("Send %s to %s securely; the old one no longer works.", ui.Path(ovpnPath), user)
 	return nil
 }
