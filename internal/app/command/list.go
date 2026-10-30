@@ -70,8 +70,8 @@ func runList(ctx context.Context, opts *Options) error {
 	return w.Flush()
 }
 
-// expiryCell shows when user's certificate expires: yellow within 30 days,
-// red once expired.
+// expiryCell shows when user's certificate expires, rated as status rates it:
+// yellow within warnDays, red once expired.
 func expiryCell(pki *easyrsa.Client, user string, now time.Time) string {
 	exp, err := pki.Expiry(user)
 	switch {
@@ -79,11 +79,6 @@ func expiryCell(pki *easyrsa.Client, user string, now time.Time) string {
 		return ui.Cell("(no cert)", ui.Critical)
 	case err != nil:
 		return ui.Cell("(unreadable)", ui.Critical)
-	case now.After(exp):
-		return ui.Cell(exp.Format(time.DateOnly), ui.Critical)
-	case exp.Sub(now) < 30*24*time.Hour:
-		return ui.Cell(exp.Format(time.DateOnly), ui.Attention)
-	default:
-		return ui.Cell(exp.Format(time.DateOnly), ui.Normal)
 	}
+	return ui.Cell(exp.Format(time.DateOnly), expiryRow("", "", exp, now).level)
 }

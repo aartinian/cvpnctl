@@ -169,8 +169,8 @@ func linkHours(cfg *config.Config, flag int) (int, error) {
 	if hours == 0 {
 		hours = cfg.Store.LinkHours
 	}
-	if hours < 1 || hours > delivery.MaxHours {
-		return 0, fmt.Errorf("link_hours must be 1–%d, got %d", delivery.MaxHours, hours)
+	if hours < 1 || hours > config.MaxLinkHours {
+		return 0, fmt.Errorf("link_hours must be 1–%d, got %d", config.MaxLinkHours, hours)
 	}
 	return hours, nil
 }
@@ -234,22 +234,13 @@ func (e *env) saved() {
 // close releases the workspace: in S3 mode it deletes the temp folder and
 // releases the lock. Problems are only warned about, because the command's
 // own result is already decided.
-func (e *env) close() {
-	if err := e.ws.Close(context.Background()); err != nil {
-		ui.Warn("%v", err)
-	}
-}
+func (e *env) close() { closeWorkspace(e.ws) }
 
 func shortVersion(v string) string {
 	if len(v) > 8 {
 		return v[:8]
 	}
 	return v
-}
-
-// issued describes a freshly issued certificate.
-type issued struct {
-	ovpnPath string
 }
 
 // step runs fn and prints its outcome: "✓ done  detail" when it succeeds, or
@@ -305,7 +296,8 @@ func (e *env) crlDetail() string {
 // Until the certificate is recorded in state, a failure deletes its files from
 // the PKI again. The certificate was never handed out, so nothing needs
 // revoking, and the command can be re-run straight away.
-func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
+// It returns the path of the rendered .ovpn.
+func (e *env) issue(ctx context.Context, user string) (_ string, err error) {
 	recorded := false
 	var id string // set once the certificate is imported
 	defer func() {
@@ -348,7 +340,7 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		}
 		return "expires " + exp.Format(time.DateOnly), nil
 	}); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	files := e.pki.Files(user)
@@ -365,7 +357,7 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		recorded = true
 		return shortID(id), nil
 	}); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Per-user copies only exist in local mode: S3 mode leaves nothing on disk.
@@ -376,7 +368,7 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 			dir, err := e.pki.CopyToUserDir(user, e.cfg.Certs.OutputDir)
 			return ui.Path(dir) + "/", err
 		}); err != nil {
-			return nil, err
+			return "", err
 		}
 	}
 
@@ -393,10 +385,10 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		}
 		return ui.Path(ovpnPath), err
 	}); err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return &issued{ovpnPath: ovpnPath}, nil
+	return ovpnPath, nil
 }
 
 // revokeLocal revokes user's certificate in the PKI and regenerates the CRL,
@@ -454,37 +446,33 @@ func (e *env) deleteCert(ctx context.Context, id, doing, done string) error {
 // confirm asks a yes/no question on the terminal. It refuses to guess when
 // stdin is not a terminal, so scripts have to opt in explicitly.
 func confirm(question string) (bool, error) {
-	fi, err := os.Stdin.Stat()
-	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
-		return false, errors.New("stdin is not a terminal; pass --yes to confirm")
-	}
-	fmt.Printf("%s [y/N] ", question)
-	answer, err := readAnswer()
+	answer, err := ask(question+" [y/N]", "stdin is not a terminal; pass --yes to confirm")
 	if err != nil {
 		return false, err
 	}
-	answer = strings.ToLower(strings.TrimSpace(answer))
+	answer = strings.ToLower(answer)
 	return answer == "y" || answer == "yes", nil
 }
 
 // confirmTyped asks the user to type word to go ahead, for actions where a
 // reflexive "y" is too easy. Like confirm, it refuses without a terminal.
 func confirmTyped(prompt, word string) (bool, error) {
-	fi, err := os.Stdin.Stat()
-	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
-		return false, errors.New("stdin is not a terminal; this can only be confirmed interactively")
-	}
-	fmt.Printf("%s ", prompt)
-	answer, err := readAnswer()
+	answer, err := ask(prompt, "stdin is not a terminal; this can only be confirmed interactively")
 	if err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(answer) == word, nil
+	return answer == word, nil
 }
 
-// readAnswer reads one line from stdin. Closed input (EOF, as from
-// /dev/null, which passes the terminal check) counts as no answer.
-func readAnswer() (string, error) {
+// ask prints prompt and reads one line from the terminal, trimmed. Without a
+// terminal it fails with notTTY. Closed input (EOF, as from /dev/null, which
+// passes the terminal check) counts as no answer.
+func ask(prompt, notTTY string) (string, error) {
+	fi, err := os.Stdin.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return "", errors.New(notTTY)
+	}
+	fmt.Printf("%s ", prompt)
 	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if errors.Is(err, io.EOF) && answer == "" {
 		fmt.Println()
@@ -493,5 +481,5 @@ func readAnswer() (string, error) {
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
-	return answer, nil
+	return strings.TrimSpace(answer), nil
 }

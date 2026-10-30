@@ -114,10 +114,6 @@ func (p *Provider) DeleteCert(ctx context.Context, arn string) error {
 // ImportCRL uploads the CRL at crlFile to the configured Client VPN endpoint.
 // This causes AWS to immediately refuse connections from revoked certificates.
 func (p *Provider) ImportCRL(ctx context.Context, crlFile string) error {
-	if p.endpointID == "" {
-		return fmt.Errorf("aws: vpn_endpoint_id is required for CRL import")
-	}
-
 	data, err := os.ReadFile(crlFile)
 	if err != nil {
 		return fmt.Errorf("aws: read CRL: %w", err)

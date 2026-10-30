@@ -21,10 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// MaxHours is the longest a link can be valid: SigV4 presigned URLs signed
-// with IAM user credentials last at most 7 days.
-const MaxHours = 168
-
 // Presigner signs download URLs. *s3.PresignClient implements it.
 type Presigner interface {
 	PresignGetObject(context.Context, *s3.GetObjectInput, ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error)
@@ -49,12 +45,13 @@ func New(client store.S3API, p Presigner, sc config.StoreConfig) *Deliverer {
 	return &Deliverer{s3: client, presign: p, sc: sc}
 }
 
-// Publish uploads user's .ovpn and returns a link valid for hours (1–168),
-// and when it really expires: earlier, if the signing credentials expire
-// first. Any earlier link for user is deleted first: each user has at most one.
+// Publish uploads user's .ovpn and returns a link valid for hours (1 to
+// config.MaxLinkHours), and when it really expires: earlier, if the signing
+// credentials expire first. Any earlier link for user is deleted first: each
+// user has at most one.
 func (d *Deliverer) Publish(ctx context.Context, user string, ovpn []byte, hours int) (url string, expires time.Time, err error) {
-	if hours < 1 || hours > MaxHours {
-		return "", time.Time{}, fmt.Errorf("delivery: link_hours must be 1–%d, got %d", MaxHours, hours)
+	if hours < 1 || hours > config.MaxLinkHours {
+		return "", time.Time{}, fmt.Errorf("delivery: link_hours must be 1–%d, got %d", config.MaxLinkHours, hours)
 	}
 	if err := d.Remove(ctx, user); err != nil {
 		return "", time.Time{}, err

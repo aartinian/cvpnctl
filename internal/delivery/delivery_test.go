@@ -137,7 +137,7 @@ func TestRealPresigner(t *testing.T) {
 	client := s3.New(s3.Options{Region: "eu-central-1", Credentials: credentials.NewStaticCredentialsProvider("AKIDEXAMPLE", "secret", "")})
 	real := sc
 	real.Bucket = "acme-vpn-pki" // a valid DNS name, as real buckets are
-	url, _, err := New(storetest.New(), s3.NewPresignClient(client), real).Publish(context.Background(), "alice", []byte("x"), MaxHours)
+	url, _, err := New(storetest.New(), s3.NewPresignClient(client), real).Publish(context.Background(), "alice", []byte("x"), config.MaxLinkHours)
 	if err != nil {
 		t.Fatal(err)
 	}
