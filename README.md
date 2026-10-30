@@ -20,8 +20,8 @@ certificate revocation list (CRL) to the endpoint.
 $ cvpnctl create -u max.mustermann
 Creating max.mustermann
   ✓ certificate issued         expires 2029-01-15
-  ✓ files saved                ~/vpn/certs/max.mustermann/
   ✓ imported to ACM            …/287fe781
+  ✓ files saved                ~/vpn/certs/max.mustermann/
   ✓ .ovpn written              ~/vpn/clients/max.mustermann.ovpn
 Done. Send ~/vpn/clients/max.mustermann.ovpn to max.mustermann securely.
 ```
