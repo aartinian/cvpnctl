@@ -30,7 +30,9 @@ func Head(ctx context.Context, client S3API, sc config.StoreConfig) (version str
 
 // Create uploads archive as the store's first PKI, only if none exists yet
 // (If-None-Match), then downloads it again and checks it arrived intact. It
-// never overwrites an existing archive.
+// never overwrites an existing archive. An upload that fails without a clear
+// answer counts as done if the stored archive is exactly archive, as when the
+// SDK's retry got 412 from the upload that landed.
 func Create(ctx context.Context, client S3API, sc config.StoreConfig, archive []byte, caller string) (version string, err error) {
 	out, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:               aws.String(sc.Bucket),
@@ -43,15 +45,23 @@ func Create(ctx context.Context, client S3API, sc config.StoreConfig, archive []
 		SSEKMSKeyId:          aws.String(sc.KMSKeyID),
 		ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
 	})
-	if IsPreconditionFailed(err) {
-		return "", ErrStoreExists
+	if err == nil {
+		version = aws.ToString(out.VersionId)
+	} else {
+		head, headErr := landedHead(ctx, client, sc, archive)
+		switch {
+		case head != nil:
+			version = aws.ToString(head.VersionId)
+		case headErr != nil:
+			return "", fmt.Errorf("store: upload the PKI: %w; checking whether it reached S3 failed too (%v): run cvpnctl status before migrating again", err, headErr)
+		case IsPreconditionFailed(err):
+			return "", ErrStoreExists
+		default:
+			return "", fmt.Errorf("store: upload the PKI: %w", err)
+		}
 	}
-	if err != nil {
-		return "", fmt.Errorf("store: upload the PKI: %w", err)
-	}
-	version = aws.ToString(out.VersionId)
 
-	got, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(archiveKey)), VersionId: out.VersionId})
+	got, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(sc.Bucket), Key: aws.String(sc.Key(archiveKey)), VersionId: aws.String(version)})
 	if err != nil {
 		return version, fmt.Errorf("store: read the uploaded PKI back: %w", err)
 	}

@@ -234,29 +234,40 @@ func (r *remote) Checkpoint(ctx context.Context) error {
 	return fmt.Errorf("store: the upload did not reach S3: %w", err)
 }
 
-// landed reports whether the stored archive is data, by comparing its checksum
-// with the one we sent, and adopts its ETag if so. It uses its own context,
-// because the failed upload may be the caller's context ending.
+// landed reports whether the stored archive is data, and adopts its ETag if so.
 func (r *remote) landed(ctx context.Context, data []byte) (bool, error) {
+	head, err := landedHead(ctx, r.s3, r.sc, data)
+	if head == nil {
+		return false, err
+	}
+	r.etag, r.version = aws.ToString(head.ETag), aws.ToString(head.VersionId)
+	return true, nil
+}
+
+// landedHead returns the current archive's HEAD if it is exactly data, by
+// comparing its checksum with data's; nil if there is no archive or a
+// different one. It is how an upload that failed without a clear answer is
+// settled. It uses its own context, because the failed upload may be the
+// caller's context ending.
+func landedHead(ctx context.Context, client S3API, sc config.StoreConfig, data []byte) (*s3.HeadObjectOutput, error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
 	defer cancel()
-	head, err := r.s3.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket:       aws.String(r.sc.Bucket),
-		Key:          aws.String(r.sc.Key(archiveKey)),
+	head, err := client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket:       aws.String(sc.Bucket),
+		Key:          aws.String(sc.Key(archiveKey)),
 		ChecksumMode: types.ChecksumModeEnabled,
 	})
 	switch {
 	case IsNotFound(err):
-		return false, nil
+		return nil, nil
 	case err != nil:
-		return false, err
+		return nil, err
 	}
 	sum := sha256.Sum256(data)
 	if aws.ToString(head.ChecksumSHA256) != base64.StdEncoding.EncodeToString(sum[:]) {
-		return false, nil
+		return nil, nil
 	}
-	r.etag, r.version = aws.ToString(head.ETag), aws.ToString(head.VersionId)
-	return true, nil
+	return head, nil
 }
 
 func (r *remote) Close(ctx context.Context) error {

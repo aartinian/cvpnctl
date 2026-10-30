@@ -276,3 +276,32 @@ func TestAcquireDoesNotAdoptOthers(t *testing.T) {
 		t.Errorf("err = %v, want *LockedError", err)
 	}
 }
+
+// The write landed, the SDK's retry got 412 from it, and reading the lock
+// back failed once: Acquire reads again rather than leave its own lock behind.
+func TestAcquireLandedThenReadFails(t *testing.T) {
+	f := storetest.New()
+	f.FailNextPut(storetest.APIError("PutObject", http.StatusPreconditionFailed, "PreconditionFailed"), true)
+	f.FailNextGet(errors.New("connection reset"))
+	l, err := Acquire(context.Background(), f, testStore, info("ari"))
+	if err != nil {
+		t.Fatalf("Acquire: %v, want our own landed lock", err)
+	}
+	if err := l.Release(context.Background()); err != nil {
+		t.Errorf("Release: %v", err)
+	}
+}
+
+// A 412 from someone else's lock, then a failed read: once the read back
+// works, Acquire reports who holds the lock rather than the read's error.
+func TestAcquireReadFailsAgainstOthers(t *testing.T) {
+	f := storetest.New()
+	if _, err := Acquire(context.Background(), f, testStore, info("bob")); err != nil {
+		t.Fatal(err)
+	}
+	f.FailNextGet(errors.New("connection reset"))
+	var locked *LockedError
+	if _, err := Acquire(context.Background(), f, testStore, info("ari")); !errors.As(err, &locked) || !strings.Contains(locked.Info.ARN, "bob") {
+		t.Errorf("err = %v, want *LockedError naming bob", err)
+	}
+}

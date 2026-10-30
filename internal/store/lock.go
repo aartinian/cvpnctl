@@ -97,8 +97,8 @@ func Acquire(ctx context.Context, client S3API, sc config.StoreConfig, info Lock
 			return &Lock{s3: client, sc: sc, etag: aws.ToString(out.ETag)}, nil
 		case IsPreconditionFailed(err):
 			held, ok, rerr := ReadLock(ctx, client, sc)
-			if rerr != nil {
-				return nil, rerr
+			if rerr != nil { // the 412 may be our own landed lock
+				return settleLock(ctx, client, sc, info.Token, err)
 			}
 			if ok && held.Token == info.Token {
 				return &Lock{s3: client, sc: sc, etag: held.ETag}, nil
@@ -127,7 +127,8 @@ func Acquire(ctx context.Context, client S3API, sc config.StoreConfig, info Lock
 // settleLock handles a lock write that failed without a clear answer, by
 // reading the lock back. If the write landed, the lock is ours: it is kept,
 // unless the command was cancelled, in which case it is removed again so the
-// store isn't left locked. Otherwise the original error is returned.
+// store isn't left locked. If another command holds it, that is reported;
+// otherwise the original error is returned.
 func settleLock(ctx context.Context, client S3API, sc config.StoreConfig, token string, putErr error) (*Lock, error) {
 	cancelled := ctx.Err()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
@@ -136,11 +137,12 @@ func settleLock(ctx context.Context, client S3API, sc config.StoreConfig, token 
 	switch {
 	case err != nil:
 		return nil, fmt.Errorf("store: take the lock: %w; it may have been taken anyway, so check cvpnctl status (%v)", putErr, err)
-	case !ok || held.Token != token:
-		if cancelled != nil {
-			return nil, cancelled
-		}
+	case cancelled != nil && (!ok || held.Token != token):
+		return nil, cancelled
+	case !ok:
 		return nil, fmt.Errorf("store: take the lock: %w", putErr)
+	case held.Token != token:
+		return nil, &LockedError{Info: *held}
 	}
 	lock := &Lock{s3: client, sc: sc, etag: held.ETag}
 	if cancelled == nil {
