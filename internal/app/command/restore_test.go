@@ -46,6 +46,16 @@ func TestVersionsLists(t *testing.T) {
 	}
 }
 
+// Like the other S3 commands, versions refuses rather than panics in a
+// build without S3 support.
+func TestVersionsWithoutS3(t *testing.T) {
+	h := newHarnessS3(t)
+	h.opts.NewS3 = nil
+	if err := runVersions(context.Background(), h.opts, ""); err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("err = %v, want 'S3 mode is not available'", err)
+	}
+}
+
 func TestVersionsDetails(t *testing.T) {
 	h := newHarnessS3(t)
 	h.must(h.create("alice"))

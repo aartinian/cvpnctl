@@ -28,6 +28,9 @@ func runVersions(ctx context.Context, opts *Options, details string) error {
 	if !cfg.S3Mode() {
 		return errors.New("store versions requires `store` in the config")
 	}
+	if opts.NewS3 == nil {
+		return errors.New("S3 mode is not available in this build")
+	}
 	client, _, err := opts.NewS3(ctx, cfg)
 	if err != nil {
 		return err
@@ -77,7 +80,7 @@ func runRestore(ctx context.Context, opts *Options, version string, yes bool) er
 	if !cfg.S3Mode() {
 		return errors.New("store restore requires `store` in the config")
 	}
-	e, err := opts.load(ctx, store.Recover, "store restore "+version)
+	e, err := opts.loadWith(ctx, cfg, store.Recover, "store restore "+version)
 	if err != nil {
 		return err
 	}

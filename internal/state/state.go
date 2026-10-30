@@ -50,6 +50,9 @@ func Load(dir string) (*Store, error) {
 	if err := json.Unmarshal(data, &s.records); err != nil {
 		return nil, fmt.Errorf("state: parse %s: %w", s.path, err)
 	}
+	if s.records == nil { // the file held JSON null
+		s.records = make(map[string]UserRecord)
+	}
 	return s, nil
 }
 

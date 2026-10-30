@@ -76,6 +76,11 @@ func (o *Options) load(ctx context.Context, mode store.Mode, command string) (*e
 	if err != nil {
 		return nil, err
 	}
+	return o.loadWith(ctx, cfg, mode, command)
+}
+
+// loadWith is load for a config the caller has already loaded.
+func (o *Options) loadWith(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (*env, error) {
 	if err := easyrsa.New(&cfg.EasyRSA, o.Verbose).CheckVersion(); err != nil {
 		return nil, err
 	}

@@ -118,8 +118,12 @@ func (c *Client) CAEncrypted() bool {
 		return false
 	}
 	defer func() { _ = f.Close() }()
-	first, _ := bufio.NewReader(f).ReadString('\n')
-	return strings.Contains(first, "ENCRYPTED")
+	// PKCS#8 says so in the BEGIN line, traditional PEM in a Proc-Type
+	// header right below it.
+	r := bufio.NewReader(f)
+	first, _ := r.ReadString('\n')
+	second, _ := r.ReadString('\n')
+	return strings.Contains(first, "ENCRYPTED") || strings.HasPrefix(second, "Proc-Type:") && strings.Contains(second, "ENCRYPTED")
 }
 
 // CACert returns the CA certificate.
