@@ -68,8 +68,11 @@ func runRenew(ctx context.Context, opts *Options, user string, hoursFlag int) er
 	}
 
 	if err := e.pushCRL(ctx); err != nil {
-		return fmt.Errorf("%w\nthe new certificate is in place, but the VPN endpoint still accepts the old one: "+
-			"run 'cvpnctl push-crl', then delete %s from the provider", err, oldID)
+		advice := "run 'cvpnctl push-crl'"
+		if oldID != "" {
+			advice += ", then delete " + oldID + " from the provider"
+		}
+		return fmt.Errorf("%w\nthe new certificate is in place, but the VPN endpoint still accepts the old one: %s", err, advice)
 	}
 
 	if oldID != "" {

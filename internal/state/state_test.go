@@ -79,3 +79,19 @@ func TestSaveCreatesDirectory(t *testing.T) {
 		t.Fatalf("save into missing directory: %v", err)
 	}
 }
+
+// A state file holding JSON null loads as empty, and can be written to.
+func TestLoadNull(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, Filename), []byte("null\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Set("alice", "cert-1") // panicked on a nil map
+	if _, ok := s.Get("alice"); !ok {
+		t.Error("alice not set")
+	}
+}

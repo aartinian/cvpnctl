@@ -91,12 +91,14 @@ func TestRunExplainsMissingTerminalForPassphrase(t *testing.T) {
 
 func TestCAEncrypted(t *testing.T) {
 	for name, tt := range map[string]struct {
-		key  string // first line of private/ca.key; "" means no file
+		key  string // first lines of private/ca.key; "" means no file
 		want bool
 	}{
-		"encrypted":   {"-----BEGIN ENCRYPTED PRIVATE KEY-----", true},
-		"unencrypted": {"-----BEGIN PRIVATE KEY-----", false},
-		"missing":     {"", false},
+		"encrypted":               {"-----BEGIN ENCRYPTED PRIVATE KEY-----", true},
+		"unencrypted":             {"-----BEGIN PRIVATE KEY-----", false},
+		"traditional encrypted":   {"-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,00", true},
+		"traditional unencrypted": {"-----BEGIN RSA PRIVATE KEY-----", false},
+		"missing":                 {"", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
