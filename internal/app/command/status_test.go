@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,9 @@ func TestStatus(t *testing.T) {
 	// A fresh PKI: no CRL anywhere yet, and nothing revoked.
 	out, err := h.status()
 	wantStatus(t, out, err, false, "none yet", "none (nothing revoked yet)", "All good.")
+	if !regexp.MustCompile(`(?m)^easyrsa\s+\d+\.\d+\.\d+ `).MatchString(out) {
+		t.Errorf("status doesn't show the EasyRSA version:\n%s", out)
+	}
 
 	h.must(h.create("alice"))
 	h.must(h.renew("alice")) // revokes the first certificate and pushes the CRL

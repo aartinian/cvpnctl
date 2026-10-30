@@ -89,7 +89,7 @@ func runMigrate(ctx context.Context, opts *Options, from string) error {
 	if src.S3Mode() {
 		return fmt.Errorf("--from %s must be a local-mode config (without store)", from)
 	}
-	if err := easyrsa.New(&cfg.EasyRSA, false).CheckVersion(); err != nil {
+	if _, err := easyrsa.New(&cfg.EasyRSA, false).CheckVersion(); err != nil {
 		return err
 	}
 	if opts.NewS3 == nil {

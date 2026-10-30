@@ -19,7 +19,8 @@ import (
 func TestVersionsFollowsPages(t *testing.T) {
 	_, f := s3Env(t) // one archive version
 	for i := range 6 {
-		f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader(fmt.Appendf(nil, "v%d", i))})
+		f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader(fmt.Appendf(nil, "v%d", i)),
+			Metadata: map[string]string{"cvpnctl-arn": fmt.Sprintf("admin-%d", i)}})
 	}
 	f.PageSize = 2
 
@@ -41,6 +42,10 @@ func TestVersionsFollowsPages(t *testing.T) {
 		}
 		if v.Current != (i == 0) {
 			t.Errorf("version %d: Current = %v", i, v.Current)
+		}
+		// Each version names its own writer (newest first: admin-5 … admin-0).
+		if want := fmt.Sprintf("admin-%d", 5-i); i < 6 && v.Writer != want {
+			t.Errorf("version %d: Writer = %q, want %q", i, v.Writer, want)
 		}
 	}
 }
