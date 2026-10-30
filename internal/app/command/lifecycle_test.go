@@ -6,6 +6,7 @@ package command
 // directory containing the easyrsa script to point them at a specific copy.
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
@@ -377,6 +378,9 @@ func TestCreateRollsBackWhenImportFails(t *testing.T) {
 	if _, ok := h.record("bob"); ok {
 		t.Error("failed create left bob in state")
 	}
+	if h.exists(filepath.Join(h.certsDir(), "bob")) {
+		t.Error("failed create left bob's key in the per-user directory")
+	}
 
 	h.cloud.failImport = false
 	h.must(h.create("bob"))
@@ -387,9 +391,19 @@ func TestRenewResumesAfterImportFailure(t *testing.T) {
 	h.must(h.create("carol"))
 	first := h.serial("carol")
 
+	copied, err := os.ReadFile(filepath.Join(h.certsDir(), "carol", "carol.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	h.cloud.failImport = true
 	if err := h.renew("carol"); err == nil {
 		t.Fatal("renew succeeded despite import failure")
+	}
+	// The unrecorded certificate is gone from the PKI; its copy must not
+	// have replaced the user's current one.
+	if now, _ := os.ReadFile(filepath.Join(h.certsDir(), "carol", "carol.crt")); !bytes.Equal(now, copied) {
+		t.Error("failed renew replaced the per-user copy with the unrecorded certificate")
 	}
 	if r, _ := h.record("carol"); r.ProviderID != "cert-1" {
 		t.Errorf("failed renew changed state to %s", r.ProviderID)

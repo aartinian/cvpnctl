@@ -291,8 +291,8 @@ func (e *env) crlDetail() string {
 	return fmt.Sprintf("%d revoked, valid until %s", n, next.Format(time.DateOnly))
 }
 
-// issue builds a certificate for user, copies it to the per-user directory,
-// imports it into the cloud store, records it in state, and renders the .ovpn.
+// issue builds a certificate for user, imports it into the cloud store,
+// records it in state, copies it to the per-user directory, and renders the .ovpn.
 //
 // Until the certificate is recorded in state, a failure deletes its files from
 // the PKI again. The certificate was never handed out, so nothing needs
@@ -343,16 +343,6 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		return nil, err
 	}
 
-	// Per-user copies only exist in local mode: S3 mode leaves nothing on disk.
-	if !e.ws.Remote() {
-		if err := step("saving the files", "files saved", func() (string, error) {
-			dir, err := e.pki.CopyToUserDir(user, e.cfg.Certs.OutputDir)
-			return ui.Path(dir) + "/", err
-		}); err != nil {
-			return nil, err
-		}
-	}
-
 	files := e.pki.Files(user)
 	if err := step("importing to ACM", "imported to ACM", func() (string, error) {
 		var err error
@@ -368,6 +358,18 @@ func (e *env) issue(ctx context.Context, user string) (_ *issued, err error) {
 		return shortID(id), nil
 	}); err != nil {
 		return nil, err
+	}
+
+	// Per-user copies only exist in local mode: S3 mode leaves nothing on disk.
+	// They are made once the certificate is recorded, so a failed import never
+	// leaves a key on disk that the PKI no longer knows.
+	if !e.ws.Remote() {
+		if err := step("saving the files", "files saved", func() (string, error) {
+			dir, err := e.pki.CopyToUserDir(user, e.cfg.Certs.OutputDir)
+			return ui.Path(dir) + "/", err
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	var ovpnPath string
