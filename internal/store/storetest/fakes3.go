@@ -66,6 +66,7 @@ type FakeS3 struct {
 	failNext  error
 	failLand  bool
 	failHead  error
+	failGet   error
 	conflicts int
 }
 
@@ -105,6 +106,13 @@ func (f *FakeS3) FailNextHead(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failHead = err
+}
+
+// FailNextGet makes the next GetObject return err.
+func (f *FakeS3) FailNextGet(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failGet = err
 }
 
 // ConflictNextPuts makes the next n PutObject calls fail with 409 Conflict.
@@ -233,6 +241,10 @@ func (f *FakeS3) GetObject(ctx context.Context, in *s3.GetObjectInput, _ ...func
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.failGet; err != nil {
+		f.failGet = nil
+		return nil, err
+	}
 	v, err := f.lookup("GetObject", aws.ToString(in.Key), in.VersionId)
 	if err != nil {
 		return nil, err
