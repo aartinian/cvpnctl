@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Installs an cvpnctl release from GitHub and verifies its checksum.
+# Installs a cvpnctl release from GitHub and verifies its checksum. Every
+# release carries this script as an asset:
 #
-#   curl -fsSL https://raw.githubusercontent.com/aartinian/cvpnctl/master/scripts/install.sh | bash
+#   curl -fsSL https://github.com/aartinian/cvpnctl/releases/latest/download/install.sh | bash
 #
 # Environment:
 #   VERSION      release tag to install, e.g. v1.0.0 (default: latest)
