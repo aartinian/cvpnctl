@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="236" height="64" viewBox="0 0 236 64" role="img" aria-label="cvpnctl">
+  <style>
+    .word { fill: #1f2328; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 38px; font-weight: 700; letter-spacing: -1px; }
+    @media (prefers-color-scheme: dark) { .word { fill: #e6edf3; } }
+  </style>
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 3 L56 11 V29 C56 44 46 55 32 61 C18 55 8 44 8 29 V11 Z" fill="url(#shield)"/>
+  <circle cx="32" cy="26" r="7" fill="#fff"/>
+  <path d="M28.5 30 H35.5 L37.5 45 H26.5 Z" fill="#fff"/>
+  <text class="word" x="72" y="45">cvpnctl</text>
+</svg>
