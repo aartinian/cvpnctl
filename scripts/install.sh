@@ -6,7 +6,8 @@
 #
 # Environment:
 #   VERSION      release tag to install, e.g. v1.0.0 (default: latest)
-#   INSTALL_DIR  where to put the binary (default: /usr/local/bin)
+#   INSTALL_DIR  where to put the binary (default: /usr/local/bin, which
+#                usually needs sudo; INSTALL_DIR="$HOME/.local/bin" doesn't)
 set -euo pipefail
 
 REPO="aartinian/cvpnctl"
@@ -61,11 +62,18 @@ echo "verifying checksum..."
 
 tar -xzf "${TMP}/${ARCHIVE}" -C "$TMP" "$BINARY"
 
+# Create INSTALL_DIR if needed (e.g. a fresh ~/.local/bin), and only fall back
+# to sudo when it can't be created or written as this user.
 SUDO=""
-if [ ! -w "$INSTALL_DIR" ]; then
+if ! mkdir -p "$INSTALL_DIR" 2>/dev/null || [ ! -w "$INSTALL_DIR" ]; then
   echo "${INSTALL_DIR} is not writable, using sudo"
   SUDO="sudo"
+  $SUDO mkdir -p "$INSTALL_DIR"
 fi
 $SUDO install -m 755 "${TMP}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 
 echo "installed $("${INSTALL_DIR}/${BINARY}" --version) to ${INSTALL_DIR}/${BINARY}"
+case ":${PATH}:" in
+  *":${INSTALL_DIR}:"*) ;;
+  *) echo "note: ${INSTALL_DIR} is not on your PATH; add it, e.g. in ~/.zshrc or ~/.bashrc: export PATH=\"${INSTALL_DIR}:\$PATH\"" ;;
+esac

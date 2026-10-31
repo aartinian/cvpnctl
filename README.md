@@ -41,10 +41,16 @@ cvpnctl turns each of those into one command, built on [EasyRSA](https://github.
 
 ## Install
 
-The install script comes with each [release](https://github.com/aartinian/cvpnctl/releases); it downloads that platform's binary, checks its SHA-256 and installs it to `/usr/local/bin` (or `INSTALL_DIR`):
+The install script comes with each [release](https://github.com/aartinian/cvpnctl/releases); it downloads that platform's binary, checks its SHA-256 and installs it to `/usr/local/bin`, asking for your password via sudo if needed:
 
 ```
 curl -fsSL https://github.com/aartinian/cvpnctl/releases/latest/download/install.sh | bash
+```
+
+To install without sudo, choose a directory of your own; it is created if missing:
+
+```
+curl -fsSL https://github.com/aartinian/cvpnctl/releases/latest/download/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
 ```
 
 To pin a version, take the script from that release: `https://github.com/aartinian/cvpnctl/releases/download/v0.3.0/install.sh`. Or download the archive for your platform from the release page yourself.
