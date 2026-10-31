@@ -74,6 +74,9 @@ Restore never pushes a CRL: check with 'cvpnctl status' afterwards.`,
 	return cmd
 }
 
+// runMigrate uploads a local setup as the store's first archive: check the
+// bucket, take the lock, make sure the store is empty, check and pack the
+// local PKI, upload it, and read it back to compare file by file.
 func runMigrate(ctx context.Context, opts *Options, from string) error {
 	cfg, err := opts.loadS3Config("store migrate", "; pass the local config with --from")
 	if err != nil {
@@ -240,6 +243,7 @@ func copyTree(src, dst string) error {
 	})
 }
 
+// copyFile copies src to dst with mode 0600, creating dst's directory.
 func copyFile(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {

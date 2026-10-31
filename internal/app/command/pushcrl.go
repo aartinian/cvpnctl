@@ -25,6 +25,8 @@ validity is 180 days).`,
 	}
 }
 
+// runPushCRL regenerates the CRL, which also renews its validity, and imports
+// it to the endpoint.
 func runPushCRL(ctx context.Context, opts *Options) error {
 	e, err := opts.load(ctx, store.Write, "push-crl")
 	if err != nil {

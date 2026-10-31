@@ -33,6 +33,8 @@ ACM or pushing a CRL, can still complete, so run cvpnctl status afterwards.`,
 	return cmd
 }
 
+// runUnlock shows the lock and removes it after confirmation, but only if it
+// is still the lock that was shown (see store.ForceUnlock).
 func runUnlock(ctx context.Context, opts *Options, yes bool) error {
 	cfg, err := opts.loadS3Config("unlock", "")
 	if err != nil {

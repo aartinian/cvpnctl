@@ -43,16 +43,11 @@ type LockedError struct{ Info LockInfo }
 
 func (e *LockedError) Error() string {
 	started := e.Info.Started.Local()
-	when := started.Format("15:04")
-	if y, m, d := started.Date(); !sameDay(y, m, d, time.Now()) {
+	when := started.Format("15:04") // today: the time is enough
+	if started.Format(time.DateOnly) != time.Now().Format(time.DateOnly) {
 		when = started.Format("2006-01-02 15:04")
 	}
 	return fmt.Sprintf("locked by %s on %s since %s (%s)", e.Info.ARN, e.Info.Host, when, e.Info.Command)
-}
-
-func sameDay(y int, m time.Month, d int, t time.Time) bool {
-	ty, tm, td := t.Local().Date()
-	return y == ty && m == tm && d == td
 }
 
 // ErrLockLost is returned by Release and Verify when the lock is no longer

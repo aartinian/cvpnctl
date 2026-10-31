@@ -52,6 +52,10 @@ type row struct {
 	note       string
 }
 
+// runStatus prints one table of everything that can expire or drift: the
+// store (S3 mode), the CA, the endpoint's certificates, both CRLs and every
+// user. It returns ErrNeedsAttention if any row is not ✓. now is a parameter
+// so tests can look into the future.
 func runStatus(ctx context.Context, opts *Options, now time.Time) error {
 	e, err := opts.load(ctx, store.Read, "status")
 	if err != nil {

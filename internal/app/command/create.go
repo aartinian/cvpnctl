@@ -28,6 +28,8 @@ func NewCreateCmd(opts *Options) *cobra.Command {
 	return cmd
 }
 
+// runCreate issues a certificate for a new user: in local mode it writes their
+// .ovpn, in S3 mode it publishes a download link.
 func runCreate(ctx context.Context, opts *Options, user string, hoursFlag int) error {
 	if err := validateUser(user); err != nil {
 		return err

@@ -31,6 +31,10 @@ func NewRevokeCmd(opts *Options) *cobra.Command {
 	return cmd
 }
 
+// runRevoke takes user's access away, in an order that is safe to resume:
+// revoke in the PKI and save, push the CRL (which is what ends access), then
+// remove the link and the ACM entry, and only then the user's record, so that
+// a re-run after any failure still knows what is left to do.
 func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error {
 	if err := validateUser(user); err != nil {
 		return err
