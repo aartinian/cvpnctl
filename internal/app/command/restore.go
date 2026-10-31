@@ -2,8 +2,6 @@ package command
 
 import (
 	"context"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -21,17 +19,11 @@ import (
 )
 
 func runVersions(ctx context.Context, opts *Options, details string) error {
-	cfg, err := opts.loadConfig()
+	cfg, err := opts.loadS3Config("store versions", "")
 	if err != nil {
 		return err
 	}
-	if !cfg.S3Mode() {
-		return errors.New("store versions requires `store` in the config")
-	}
-	if opts.NewS3 == nil {
-		return errors.New("S3 mode is not available in this build")
-	}
-	client, _, err := opts.NewS3(ctx, cfg)
+	client, _, err := opts.s3(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -73,12 +65,9 @@ func showVersion(ctx context.Context, client store.S3API, sc config.StoreConfig,
 }
 
 func runRestore(ctx context.Context, opts *Options, version string, yes bool) error {
-	cfg, err := opts.loadConfig()
+	cfg, err := opts.loadS3Config("store restore", "")
 	if err != nil {
 		return err
-	}
-	if !cfg.S3Mode() {
-		return errors.New("store restore requires `store` in the config")
 	}
 	e, err := opts.loadWith(ctx, cfg, store.Recover, "store restore "+version)
 	if err != nil {
@@ -252,19 +241,11 @@ func (e *env) endpointRevoked(ctx context.Context) (map[string]bool, error) {
 	if err != nil || data == nil {
 		return map[string]bool{}, err
 	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, errors.New("the endpoint's CRL is unreadable")
-	}
-	crl, err := x509.ParseRevocationList(block.Bytes)
+	crl, err := easyrsa.ParseCRL(data)
 	if err != nil {
 		return nil, fmt.Errorf("the endpoint's CRL is unreadable: %w", err)
 	}
-	out := map[string]bool{}
-	for _, r := range crl.RevokedCertificateEntries {
-		out[easyrsa.NormSerial(r.SerialNumber.Text(16))] = true
-	}
-	return out, nil
+	return easyrsa.CRLSerials(crl), nil
 }
 
 // unpackVersion downloads and unpacks one archive version into a temp folder.

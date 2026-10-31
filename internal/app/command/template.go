@@ -2,7 +2,6 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,14 +49,7 @@ get it with their next renew or link.`,
 // templateConfig loads the config and requires S3 mode: locally the template
 // is a file named in the config, edited directly.
 func templateConfig(opts *Options) (*config.Config, error) {
-	cfg, err := opts.loadConfig()
-	if err != nil {
-		return nil, err
-	}
-	if !cfg.S3Mode() {
-		return nil, errors.New("template requires `store` in the config; in local mode, edit the file at ovpn.template")
-	}
-	return cfg, nil
+	return opts.loadS3Config("template", "; in local mode, edit the file at ovpn.template")
 }
 
 func runTemplateShow(ctx context.Context, opts *Options) error {

@@ -182,15 +182,31 @@ func (c *Client) CRLInfo() (revoked int, nextUpdate time.Time, err error) {
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("easyrsa: %w", err)
 	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return 0, time.Time{}, fmt.Errorf("easyrsa: %s contains no PEM data", c.CRLPath())
-	}
-	crl, err := x509.ParseRevocationList(block.Bytes)
+	crl, err := ParseCRL(data)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("easyrsa: parse %s: %w", c.CRLPath(), err)
+		return 0, time.Time{}, fmt.Errorf("easyrsa: %s: %w", c.CRLPath(), err)
 	}
 	return len(crl.RevokedCertificateEntries), crl.NextUpdate, nil
+}
+
+// ParseCRL parses a PEM-encoded CRL, such as crl.pem or the one exported from
+// the VPN endpoint.
+func ParseCRL(data []byte) (*x509.RevocationList, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("contains no PEM data")
+	}
+	return x509.ParseRevocationList(block.Bytes)
+}
+
+// CRLSerials returns the serial numbers crl revokes, normalised with
+// NormSerial so they compare equal to RevokedSerials.
+func CRLSerials(crl *x509.RevocationList) map[string]bool {
+	serials := make(map[string]bool, len(crl.RevokedCertificateEntries))
+	for _, r := range crl.RevokedCertificateEntries {
+		serials[NormSerial(r.SerialNumber.Text(16))] = true
+	}
+	return serials
 }
 
 // readCert parses the first certificate in a PEM file. EasyRSA puts a text

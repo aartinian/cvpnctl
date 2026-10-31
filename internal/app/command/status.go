@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -172,11 +171,7 @@ func (e *env) endpointCRLRow(ctx context.Context, ca *x509.Certificate, now time
 			note: fmt.Sprintf("none: %d revoked %s can still connect; run cvpnctl push-crl", len(revoked), plural(len(revoked), "certificate", "certificates"))}, nil
 	}
 
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return row{what: "CRL (endpoint)", level: ui.Critical, note: "unreadable"}, nil
-	}
-	crl, err := x509.ParseRevocationList(block.Bytes)
+	crl, err := easyrsa.ParseCRL(data)
 	if err != nil {
 		return row{what: "CRL (endpoint)", level: ui.Critical, note: "unreadable"}, nil
 	}
@@ -193,10 +188,7 @@ func (e *env) endpointCRLRow(ctx context.Context, ca *x509.Certificate, now time
 		return r, nil
 	}
 
-	onEndpoint := make(map[string]bool)
-	for _, entry := range crl.RevokedCertificateEntries {
-		onEndpoint[easyrsa.NormSerial(entry.SerialNumber.Text(16))] = true
-	}
+	onEndpoint := easyrsa.CRLSerials(crl)
 	var extra, missing int
 	for s := range onEndpoint {
 		if !revoked[s] {

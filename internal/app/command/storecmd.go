@@ -75,12 +75,9 @@ Restore never pushes a CRL: check with 'cvpnctl status' afterwards.`,
 }
 
 func runMigrate(ctx context.Context, opts *Options, from string) error {
-	cfg, err := opts.loadConfig()
+	cfg, err := opts.loadS3Config("store migrate", "; pass the local config with --from")
 	if err != nil {
 		return err
-	}
-	if !cfg.S3Mode() {
-		return errors.New("store migrate requires `store` in the config; pass the local config with --from")
 	}
 	src, err := config.Load(from)
 	if err != nil {
@@ -92,10 +89,7 @@ func runMigrate(ctx context.Context, opts *Options, from string) error {
 	if _, err := easyrsa.New(&cfg.EasyRSA, false).CheckVersion(); err != nil {
 		return err
 	}
-	if opts.NewS3 == nil {
-		return errors.New("S3 mode is not available in this build")
-	}
-	client, caller, err := opts.NewS3(ctx, cfg)
+	client, caller, err := opts.s3(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -132,15 +126,8 @@ func runMigrate(ctx context.Context, opts *Options, from string) error {
 			ui.Warn("%v", err)
 		}
 	}()
-	if v, exists, err := store.Current(ctx, client, sc); err != nil {
+	if err := requireEmptyStore(ctx, client, sc); err != nil {
 		return err
-	} else if exists {
-		return fmt.Errorf("%w (version %s); migrate never overwrites it", store.ErrStoreExists, v.ID)
-	}
-	if deleted, err := store.Deleted(ctx, client, sc); err != nil {
-		return err
-	} else if deleted {
-		return store.ErrStoreDeleted
 	}
 
 	staging, err := store.TempDir()
@@ -186,6 +173,23 @@ func runMigrate(ctx context.Context, opts *Options, from string) error {
 
 	ui.Done("Next: run 'cvpnctl status'. Once everything is ✓, delete the local copies yourself (%s, %s, %s) and keep one encrypted backup off this machine.",
 		ui.Path(src.EasyRSA.PKIDir), ui.Path(src.Certs.OutputDir), ui.Path(src.OVPN.OutputDir))
+	return nil
+}
+
+// requireEmptyStore fails unless the store has never held a PKI: migrate
+// neither overwrites a current archive nor puts a different PKI on top of a
+// deleted one's history, which restore can still bring back.
+func requireEmptyStore(ctx context.Context, client store.S3API, sc config.StoreConfig) error {
+	if v, exists, err := store.Current(ctx, client, sc); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("%w (version %s); migrate never overwrites it", store.ErrStoreExists, v.ID)
+	}
+	if deleted, err := store.Deleted(ctx, client, sc); err != nil {
+		return err
+	} else if deleted {
+		return store.ErrStoreDeleted
+	}
 	return nil
 }
 

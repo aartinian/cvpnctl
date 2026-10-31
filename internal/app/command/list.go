@@ -9,9 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
-	"github.com/aartinian/cvpnctl/internal/state"
 	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
@@ -36,23 +34,18 @@ func runList(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return err
 	}
-	ws, _, err := opts.openWorkspace(ctx, cfg, store.Read, "list")
+	e, err := opts.newEnv(ctx, cfg, store.Read, "list")
 	if err != nil {
 		return err
 	}
-	defer closeWorkspace(ws)
-	users, err := state.Load(ws.StateDir())
-	if err != nil {
-		return err
-	}
+	defer e.close()
 
-	records := users.All()
+	records := e.users.All()
 	if len(records) == 0 {
 		fmt.Println("no users found")
 		return nil
 	}
 
-	pki := easyrsa.New(&config.EasyRSAConfig{Path: cfg.EasyRSA.Path, PKIDir: ws.PKIDir()}, false)
 	now := time.Now()
 	// tabwriter buffers until Flush, which reports any write error, so the
 	// individual row writes need no checks of their own.
@@ -61,7 +54,7 @@ func runList(ctx context.Context, opts *Options) error {
 	for _, r := range records {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			r.User,
-			expiryCell(pki, r.User, now),
+			expiryCell(e.pki, r.User, now),
 			r.CreatedAt.Format(time.DateOnly),
 			r.UpdatedAt.Format(time.DateOnly),
 			r.ProviderID,
