@@ -70,7 +70,7 @@ func paint(on bool, color, s string) string {
 	return color + s + reset
 }
 
-// Title prints the line that starts a command, e.g. "Creating alice".
+// Title prints the line that starts a command, e.g. "Creating max".
 func Title(format string, args ...any) {
 	line(outW(), paint(colorOut, bold, fmt.Sprintf(format, args...)))
 }

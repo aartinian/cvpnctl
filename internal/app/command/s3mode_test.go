@@ -106,41 +106,41 @@ func TestS3Lifecycle(t *testing.T) {
 		}
 	}
 
-	h.must(h.create("alice"))
-	first := h.serial("alice")
+	h.must(h.create("max"))
+	first := h.serial("max")
 	check("create")
-	if r, ok := h.record("alice"); !ok || r.ProviderID != "cert-1" {
+	if r, ok := h.record("max"); !ok || r.ProviderID != "cert-1" {
 		t.Fatalf("stored state after create = %+v, %v", r, ok)
 	}
 	if h.cloud.certs["cert-1"] != first {
 		t.Errorf("provider holds %v, want cert-1 with serial %s", h.cloud.certs, first)
 	}
 
-	h.must(h.renew("alice"))
-	second := h.serial("alice")
+	h.must(h.renew("max"))
+	second := h.serial("max")
 	check("renew")
 	if second == first {
 		t.Fatal("renew did not issue a new certificate")
 	}
-	if r, _ := h.record("alice"); r.ProviderID != "cert-2" {
+	if r, _ := h.record("max"); r.ProviderID != "cert-2" {
 		t.Errorf("stored state after renew points at %s, want cert-2", r.ProviderID)
 	}
 	if !h.cloud.revoked[first] || h.cloud.revoked[second] {
 		t.Errorf("CRL after renew = %v, want %s revoked and %s not", h.cloud.revoked, first, second)
 	}
 
-	h.must(h.revoke("alice"))
+	h.must(h.revoke("max"))
 	check("revoke")
 	if len(h.cloud.certs) != 0 || !h.cloud.revoked[second] {
 		t.Errorf("after revoke: provider %v, CRL %v", h.cloud.certs, h.cloud.revoked)
 	}
-	if _, ok := h.record("alice"); ok {
-		t.Error("alice still in the stored state after revoke")
+	if _, ok := h.record("max"); ok {
+		t.Error("max still in the stored state after revoke")
 	}
 
 	h.must(runPushCRL(context.Background(), h.opts))
 	check("push-crl")
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	check("second create")
 }
 
@@ -161,9 +161,9 @@ func TestS3CRLNeverAheadOfStore(t *testing.T) {
 			}
 		}
 	}
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	h.must(h.create("bob"))
-	h.must(h.renew("alice"))
+	h.must(h.renew("max"))
 	h.must(h.revoke("bob"))
 	h.must(runPushCRL(context.Background(), h.opts))
 	if pushes != 3 {
@@ -181,7 +181,7 @@ func TestS3CheckpointRejectedRollsBackACM(t *testing.T) {
 		h.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader(other)})
 	}
 
-	err := h.create("alice")
+	err := h.create("max")
 	if !errors.Is(err, store.ErrStoreChanged) {
 		t.Fatalf("err = %v, want ErrStoreChanged", err)
 	}
@@ -206,15 +206,15 @@ func TestS3UnknownCheckpointKeepsACM(t *testing.T) {
 		h.s3.FailNextHead(errors.New("timeout"))
 	}
 
-	err := h.create("alice")
+	err := h.create("max")
 	if !errors.Is(err, store.ErrUploadUnknown) || !strings.Contains(err.Error(), "by hand") {
 		t.Fatalf("err = %v, want ErrUploadUnknown with advice", err)
 	}
 	if len(h.cloud.certs) != 1 {
 		t.Errorf("ACM holds %d certificates, want the imported one kept", len(h.cloud.certs))
 	}
-	if !h.exists(filepath.Join(h.storedCopy(), "pki", "issued", "alice.crt")) {
-		t.Error("the landed archive should hold alice's certificate")
+	if !h.exists(filepath.Join(h.storedCopy(), "pki", "issued", "max.crt")) {
+		t.Error("the landed archive should hold max's certificate")
 	}
 }
 
@@ -231,7 +231,7 @@ func TestS3SecondAdminLocked(t *testing.T) {
 	defer ws.Close(context.Background())
 
 	var locked *store.LockedError
-	if err := h.create("alice"); !errors.As(err, &locked) || locked.Info.Host != "nils-mbp" {
+	if err := h.create("max"); !errors.As(err, &locked) || locked.Info.Host != "nils-mbp" {
 		t.Fatalf("err = %v, want *LockedError naming nils-mbp", err)
 	}
 	if len(h.cloud.certs) != 0 {
@@ -242,7 +242,7 @@ func TestS3SecondAdminLocked(t *testing.T) {
 // list reads the store without AWS credentials for the provider.
 func TestS3List(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	h.opts.NewProvider = func(context.Context, *config.Config) (provider.CertStore, error) {
 		t.Error("list created a provider")
 		return nil, errors.New("no")
@@ -256,7 +256,7 @@ func TestS3List(t *testing.T) {
 // Ctrl-C cancels the command's context: list stops instead of carrying on.
 func TestS3ListCancelled(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := runList(ctx, h.opts); !errors.Is(err, context.Canceled) {

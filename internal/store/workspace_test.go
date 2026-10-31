@@ -74,7 +74,7 @@ func TestLocalWorkspacePassThrough(t *testing.T) {
 
 func TestOpenWriteDownloadsAndLocks(t *testing.T) {
 	cfg, f := s3Env(t)
-	ws, err := Open(context.Background(), cfg, Write, deps(f, "create alice"))
+	ws, err := Open(context.Background(), cfg, Write, deps(f, "create max"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestOpenWriteDownloadsAndLocks(t *testing.T) {
 		t.Errorf("PKI at %s, want it under TMPDIR %s", ws.PKIDir(), os.TempDir())
 	}
 	lock, held, _ := ReadLock(context.Background(), f, testStore)
-	if !held || lock.Command != "create alice" || lock.Host != "ari-mbp" {
+	if !held || lock.Command != "create max" || lock.Host != "ari-mbp" {
 		t.Errorf("lock = %+v, held=%v", lock, held)
 	}
 }
@@ -123,7 +123,7 @@ func TestOpenEmptyStore(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	st := testStore
 	f := storetest.New()
-	_, err := Open(context.Background(), &config.Config{Store: &st}, Write, deps(f, "create alice"))
+	_, err := Open(context.Background(), &config.Config{Store: &st}, Write, deps(f, "create max"))
 	if !errors.Is(err, ErrStoreEmpty) || err.Error() != "store is empty; run cvpnctl store migrate" {
 		t.Fatalf("err = %v, want ErrStoreEmpty with the exact message", err)
 	}
@@ -142,7 +142,7 @@ func TestOpenRejectsArchiveWithoutCA(t *testing.T) {
 	data, _ := Pack(src)
 	f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader(data)})
 
-	_, err := Open(context.Background(), cfg, Write, deps(f, "create alice"))
+	_, err := Open(context.Background(), cfg, Write, deps(f, "create max"))
 	if err == nil || !strings.Contains(err.Error(), "ca.crt") {
 		t.Fatalf("err = %v, want a missing ca.crt error", err)
 	}
@@ -156,7 +156,7 @@ func TestOpenRejectsArchiveWithoutCA(t *testing.T) {
 
 func TestSecondWriteRefused(t *testing.T) {
 	cfg, f := s3Env(t)
-	first, err := Open(context.Background(), cfg, Write, deps(f, "create alice"))
+	first, err := Open(context.Background(), cfg, Write, deps(f, "create max"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestSecondWriteRefused(t *testing.T) {
 
 	_, err = Open(context.Background(), cfg, Write, deps(f, "revoke bob"))
 	var locked *LockedError
-	if !errors.As(err, &locked) || locked.Info.Command != "create alice" {
+	if !errors.As(err, &locked) || locked.Info.Command != "create max" {
 		t.Fatalf("err = %v, want *LockedError naming the first command", err)
 	}
 	if d := tempDirs(t); len(d) != 1 {
@@ -194,7 +194,7 @@ func stored(t *testing.T, f *storetest.FakeS3, name string) string {
 func openWrite(t *testing.T) (Workspace, *storetest.FakeS3) {
 	t.Helper()
 	cfg, f := s3Env(t)
-	ws, err := Open(context.Background(), cfg, Write, deps(f, "create alice"))
+	ws, err := Open(context.Background(), cfg, Write, deps(f, "create max"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,19 +207,19 @@ func TestCheckpointChains(t *testing.T) {
 	before := ws.Version()
 	index := filepath.Join(ws.PKIDir(), "index.txt")
 
-	os.WriteFile(index, []byte("V\talice"), 0o600)
+	os.WriteFile(index, []byte("V\tmax"), 0o600)
 	if err := ws.Checkpoint(context.Background()); err != nil {
 		t.Fatalf("first checkpoint: %v", err)
 	}
 	first := ws.Version()
-	os.WriteFile(index, []byte("V\talice\nR\tbob"), 0o600)
+	os.WriteFile(index, []byte("V\tmax\nR\tbob"), 0o600)
 	if err := ws.Checkpoint(context.Background()); err != nil {
 		t.Fatalf("second checkpoint (chained on the first): %v", err)
 	}
 	if ws.Version() == first || first == before {
 		t.Errorf("versions did not advance: %s, %s, %s", before, first, ws.Version())
 	}
-	if got := stored(t, f, "pki/index.txt"); got != "V\talice\nR\tbob" {
+	if got := stored(t, f, "pki/index.txt"); got != "V\tmax\nR\tbob" {
 		t.Errorf("stored index.txt = %q", got)
 	}
 	head, _ := f.HeadObject(context.Background(), &s3.HeadObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz")})
@@ -230,11 +230,11 @@ func TestCheckpointChains(t *testing.T) {
 
 func TestCheckpointExcludesOut(t *testing.T) {
 	ws, f := openWrite(t)
-	os.WriteFile(filepath.Join(ws.OutDir(), "alice.ovpn"), []byte("secret"), 0o600)
+	os.WriteFile(filepath.Join(ws.OutDir(), "max.ovpn"), []byte("secret"), 0o600)
 	if err := ws.Checkpoint(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := stored(t, f, "out/alice.ovpn"); got != "(missing)" {
+	if got := stored(t, f, "out/max.ovpn"); got != "(missing)" {
 		t.Error("a rendered .ovpn was uploaded into the archive")
 	}
 }
@@ -323,7 +323,7 @@ func TestOpenDamaged(t *testing.T) {
 	cfg, f := s3Env(t)
 	f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader([]byte("garbage"))})
 
-	if _, err := Open(context.Background(), cfg, Write, deps(f, "create alice")); err == nil || !strings.Contains(err.Error(), "store restore") {
+	if _, err := Open(context.Background(), cfg, Write, deps(f, "create max")); err == nil || !strings.Contains(err.Error(), "store restore") {
 		t.Fatalf("Write: err = %v, want a hint to restore", err)
 	}
 	ws, err := Open(context.Background(), cfg, Recover, deps(f, "store restore"))
@@ -376,7 +376,7 @@ func TestVerify(t *testing.T) {
 
 func TestCloseRemovesTempAndLock(t *testing.T) {
 	cfg, f := s3Env(t)
-	ws, err := Open(context.Background(), cfg, Write, deps(f, "create alice"))
+	ws, err := Open(context.Background(), cfg, Write, deps(f, "create max"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestCloseRemovesTempAndLock(t *testing.T) {
 func TestCloseAfterCancelledContext(t *testing.T) {
 	cfg, f := s3Env(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	ws, err := Open(ctx, cfg, Write, deps(f, "create alice"))
+	ws, err := Open(ctx, cfg, Write, deps(f, "create max"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestCloseAfterCancelledContext(t *testing.T) {
 // holder's lock alone.
 func TestCloseAfterLockLost(t *testing.T) {
 	cfg, f := s3Env(t)
-	ws, _ := Open(context.Background(), cfg, Write, deps(f, "create alice"))
+	ws, _ := Open(context.Background(), cfg, Write, deps(f, "create max"))
 	forceUnlock(t, f)
 	other, _ := Acquire(context.Background(), f, testStore, info("nils"))
 

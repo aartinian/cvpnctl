@@ -14,7 +14,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("load empty store: %v", err)
 	}
 	s.Set("carol", "arn:3")
-	s.Set("alice", "arn:1")
+	s.Set("max", "arn:1")
 	s.Set("bob", "arn:2")
 	if err := s.Save(); err != nil {
 		t.Fatalf("save: %v", err)
@@ -24,16 +24,16 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	r, ok := s2.Get("alice")
+	r, ok := s2.Get("max")
 	if !ok || r.ProviderID != "arn:1" {
-		t.Fatalf("Get(alice) = %+v, %v", r, ok)
+		t.Fatalf("Get(max) = %+v, %v", r, ok)
 	}
 
 	var names []string
 	for _, r := range s2.All() {
 		names = append(names, r.User)
 	}
-	if got := filepath.Join(names...); got != filepath.Join("alice", "bob", "carol") {
+	if got := filepath.Join(names...); got != filepath.Join("bob", "carol", "max") {
 		t.Errorf("All() not sorted by user: %v", names)
 	}
 
@@ -48,10 +48,10 @@ func TestRoundTrip(t *testing.T) {
 
 func TestSetKeepsCreatedAt(t *testing.T) {
 	s, _ := Load(t.TempDir())
-	s.Set("alice", "arn:1")
-	created := s.records["alice"].CreatedAt
-	s.Set("alice", "arn:2")
-	r, _ := s.Get("alice")
+	s.Set("max", "arn:1")
+	created := s.records["max"].CreatedAt
+	s.Set("max", "arn:2")
+	r, _ := s.Get("max")
 	if !r.CreatedAt.Equal(created) || r.ProviderID != "arn:2" {
 		t.Errorf("upsert changed CreatedAt or dropped ProviderID: %+v", r)
 	}
@@ -74,7 +74,7 @@ func TestDelete(t *testing.T) {
 func TestSaveCreatesDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "not", "yet")
 	s, _ := Load(dir)
-	s.Set("alice", "arn:1")
+	s.Set("max", "arn:1")
 	if err := s.Save(); err != nil {
 		t.Fatalf("save into missing directory: %v", err)
 	}
@@ -90,8 +90,8 @@ func TestLoadNull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Set("alice", "cert-1") // panicked on a nil map
-	if _, ok := s.Get("alice"); !ok {
-		t.Error("alice not set")
+	s.Set("max", "cert-1") // panicked on a nil map
+	if _, ok := s.Get("max"); !ok {
+		t.Error("max not set")
 	}
 }

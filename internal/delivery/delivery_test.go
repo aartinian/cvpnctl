@@ -39,12 +39,12 @@ func keys(f *storetest.FakeS3) []string {
 	return ks
 }
 
-var keyRE = regexp.MustCompile(`^cvpnctl/delivery/alice-[0-9a-f]{32}\.ovpn$`)
+var keyRE = regexp.MustCompile(`^cvpnctl/delivery/max-[0-9a-f]{32}\.ovpn$`)
 
 func TestPublish(t *testing.T) {
 	f, p := storetest.New(), &stubPresigner{}
 	before := time.Now()
-	url, expires, err := New(f, p, sc).Publish(context.Background(), "alice", []byte("client"), 24)
+	url, expires, err := New(f, p, sc).Publish(context.Background(), "max", []byte("client"), 24)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestPublish(t *testing.T) {
 		t.Errorf("expires = %v, want about 24h from now", expires)
 	}
 	head, _ := f.HeadObject(context.Background(), &s3.HeadObjectInput{Bucket: aws.String("b"), Key: aws.String(ks[0])})
-	if got := aws.ToString(head.ContentDisposition); got != `attachment; filename="alice.ovpn"` {
+	if got := aws.ToString(head.ContentDisposition); got != `attachment; filename="max.ovpn"` {
 		t.Errorf("Content-Disposition = %q", got)
 	}
 	if body, _ := f.Object(ks[0]); string(body) != "client" {
@@ -73,8 +73,8 @@ func TestPublish(t *testing.T) {
 func TestPublishReplacesOldLink(t *testing.T) {
 	f := storetest.New()
 	d := New(f, &stubPresigner{}, sc)
-	d.Publish(context.Background(), "alice", []byte("one"), 24)
-	d.Publish(context.Background(), "alice", []byte("two"), 24)
+	d.Publish(context.Background(), "max", []byte("one"), 24)
+	d.Publish(context.Background(), "max", []byte("two"), 24)
 	ks := keys(f)
 	if len(ks) != 1 {
 		t.Fatalf("keys = %v, want exactly one active link", ks)
@@ -89,7 +89,7 @@ func TestPublishKeysAreUnguessable(t *testing.T) {
 	d := New(f, &stubPresigner{}, sc)
 	seen := map[string]bool{}
 	for i := 0; i < 20; i++ {
-		d.Publish(context.Background(), "alice", []byte("x"), 1)
+		d.Publish(context.Background(), "max", []byte("x"), 1)
 		k := keys(f)[0]
 		if seen[k] {
 			t.Fatalf("key %s repeated", k)
@@ -123,7 +123,7 @@ func TestRemoveOnlyThatUser(t *testing.T) {
 func TestPublishHoursRange(t *testing.T) {
 	d := New(storetest.New(), &stubPresigner{}, sc)
 	for _, h := range []int{0, 169, -1} {
-		if _, _, err := d.Publish(context.Background(), "alice", []byte("x"), h); err == nil || !strings.Contains(err.Error(), "1–168") {
+		if _, _, err := d.Publish(context.Background(), "max", []byte("x"), h); err == nil || !strings.Contains(err.Error(), "1–168") {
 			t.Errorf("hours %d: err = %v", h, err)
 		}
 	}
@@ -137,11 +137,11 @@ func TestRealPresigner(t *testing.T) {
 	client := s3.New(s3.Options{Region: "eu-central-1", Credentials: credentials.NewStaticCredentialsProvider("AKIDEXAMPLE", "secret", "")})
 	real := sc
 	real.Bucket = "acme-vpn-pki" // a valid DNS name, as real buckets are
-	url, _, err := New(storetest.New(), s3.NewPresignClient(client), real).Publish(context.Background(), "alice", []byte("x"), config.MaxLinkHours)
+	url, _, err := New(storetest.New(), s3.NewPresignClient(client), real).Publish(context.Background(), "max", []byte("x"), config.MaxLinkHours)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"https://acme-vpn-pki.s3.eu-central-1.amazonaws.com/cvpnctl/delivery/alice-", "X-Amz-Expires=604800", "X-Amz-Algorithm=AWS4-HMAC-SHA256", "X-Amz-Signature="} {
+	for _, want := range []string{"https://acme-vpn-pki.s3.eu-central-1.amazonaws.com/cvpnctl/delivery/max-", "X-Amz-Expires=604800", "X-Amz-Algorithm=AWS4-HMAC-SHA256", "X-Amz-Signature="} {
 		if !strings.Contains(url, want) {
 			t.Errorf("link lacks %q:\n%s", want, url)
 		}

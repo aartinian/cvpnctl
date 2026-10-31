@@ -73,7 +73,7 @@ func TestPackIsDeterministic(t *testing.T) {
 func TestPackIgnoresOtherDirs(t *testing.T) {
 	src := t.TempDir()
 	writeFile(t, filepath.Join(src, "pki/ca.crt"), "CA")
-	writeFile(t, filepath.Join(src, "out/alice.ovpn"), "secret")
+	writeFile(t, filepath.Join(src, "out/max.ovpn"), "secret")
 	data, _ := Pack(src)
 	dst := t.TempDir()
 	if err := Unpack(data, dst); err != nil {

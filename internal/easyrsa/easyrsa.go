@@ -134,7 +134,7 @@ func (c *Client) Index() ([]IndexEntry, error) {
 	return entries, nil
 }
 
-// commonName extracts CN from a subject like "/C=CH/CN=alice/O=x".
+// commonName extracts CN from a subject like "/C=CH/CN=max/O=x".
 func commonName(subject string) string {
 	for _, part := range strings.Split(subject, "/") {
 		if cn, ok := strings.CutPrefix(part, "CN="); ok {
