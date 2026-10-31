@@ -1,0 +1,5 @@
+# Terraform working files and state, for anyone applying the example in place.
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
