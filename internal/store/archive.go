@@ -1,5 +1,3 @@
-// Package store keeps cvpnctl's PKI, state and template either in local
-// directories or, in S3 mode, as one archive in an S3 bucket.
 package store
 
 import (

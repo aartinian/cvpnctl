@@ -70,6 +70,8 @@ func runTemplateShow(ctx context.Context, opts *Options) error {
 	return err
 }
 
+// runTemplateSet replaces the stored template after rendering it once with a
+// test user, so a broken template never reaches the store.
 func runTemplateSet(ctx context.Context, opts *Options, file string) error {
 	cfg, err := templateConfig(opts)
 	if err != nil {

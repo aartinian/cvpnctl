@@ -18,6 +18,7 @@ import (
 	"github.com/aartinian/cvpnctl/internal/ui"
 )
 
+// runVersions lists the archive's versions, or with details, the users of one.
 func runVersions(ctx context.Context, opts *Options, details string) error {
 	cfg, err := opts.loadS3Config("store versions", "")
 	if err != nil {
@@ -64,6 +65,11 @@ func showVersion(ctx context.Context, client store.S3API, sc config.StoreConfig,
 	return nil
 }
 
+// runRestore makes an earlier version current again, as a new version. It
+// opens the store in Recover mode, so a damaged or deleted current archive
+// can be replaced too, shows what the restore changes, and asks: a typed
+// confirmation when it could let a revoked certificate back in or lose track
+// of a valid one. It never pushes a CRL.
 func runRestore(ctx context.Context, opts *Options, version string, yes bool) error {
 	cfg, err := opts.loadS3Config("store restore", "")
 	if err != nil {
@@ -315,6 +321,7 @@ func names(rs []state.UserRecord) []string {
 	return out
 }
 
+// minus returns the elements of a that are not in b, in a's order.
 func minus(a, b []string) []string {
 	var out []string
 	for _, x := range a {

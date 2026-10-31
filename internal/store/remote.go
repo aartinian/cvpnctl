@@ -47,6 +47,11 @@ type remote struct {
 	closed  bool
 }
 
+// openRemote takes the lock (unless mode is Read), then downloads and unpacks
+// the current archive into a fresh temp folder. A missing archive is
+// ErrStoreEmpty, or ErrStoreDeleted if earlier versions remain; in Recover
+// mode a deleted or unusable archive instead opens as an empty workspace,
+// with Damaged saying why.
 func openRemote(ctx context.Context, sc config.StoreConfig, mode Mode, d Deps) (_ *remote, err error) {
 	Sweep(os.TempDir(), os.Getuid(), staleAfter)
 	r := &remote{s3: d.S3, sc: sc, mode: mode, caller: d.Caller}
@@ -200,16 +205,7 @@ func (r *remote) Checkpoint(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	in := &s3.PutObjectInput{
-		Bucket:               aws.String(r.sc.Bucket),
-		Key:                  aws.String(r.sc.Key(archiveKey)),
-		Body:                 bytes.NewReader(data),
-		ContentType:          aws.String("application/gzip"),
-		Metadata:             map[string]string{"cvpnctl-arn": r.caller},
-		ServerSideEncryption: types.ServerSideEncryptionAwsKms,
-		SSEKMSKeyId:          aws.String(r.sc.KMSKeyID),
-		ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
-	}
+	in := archivePut(r.sc, data, r.caller)
 	if r.etag == "" { // restoring a deleted archive: it must still be absent
 		in.IfNoneMatch = aws.String("*")
 	} else {
@@ -232,6 +228,23 @@ func (r *remote) Checkpoint(ctx context.Context) error {
 		return ErrStoreChanged
 	}
 	return fmt.Errorf("store: the upload did not reach S3: %w", err)
+}
+
+// archivePut is the upload of data as the archive: KMS-encrypted with the
+// configured key, with a SHA-256 checksum (which landedHead compares), and
+// the uploader's ARN as metadata (which store versions shows). The caller
+// adds the condition.
+func archivePut(sc config.StoreConfig, data []byte, caller string) *s3.PutObjectInput {
+	return &s3.PutObjectInput{
+		Bucket:               aws.String(sc.Bucket),
+		Key:                  aws.String(sc.Key(archiveKey)),
+		Body:                 bytes.NewReader(data),
+		ContentType:          aws.String("application/gzip"),
+		Metadata:             map[string]string{"cvpnctl-arn": caller},
+		ServerSideEncryption: types.ServerSideEncryptionAwsKms,
+		SSEKMSKeyId:          aws.String(sc.KMSKeyID),
+		ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
+	}
 }
 
 // landed reports whether the stored archive is data, and adopts its ETag if so.
