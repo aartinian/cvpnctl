@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -30,14 +31,19 @@ func NewRevokeCmd(opts *Options) *cobra.Command {
 	return cmd
 }
 
+// runRevoke takes user's access away, in an order that is safe to resume:
+// revoke in the PKI and save, push the CRL (which is what ends access), then
+// remove the link and the ACM entry, and only then the user's record, so that
+// a re-run after any failure still knows what is left to do.
 func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error {
 	if err := validateUser(user); err != nil {
 		return err
 	}
-	e, err := opts.load(ctx)
+	e, err := opts.load(ctx, store.Write, "revoke "+user)
 	if err != nil {
 		return err
 	}
+	defer e.close()
 
 	record, ok := e.users.Get(user)
 	if !ok {
@@ -56,11 +62,18 @@ func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error 
 
 	ui.Title("Revoking %s", user)
 
-	if err := e.revokeLocal(user, "certificate revoked"); err != nil {
+	if err := e.revokeLocal(ctx, user, "certificate revoked"); err != nil {
 		return err
 	}
 	if err := e.pushCRL(ctx); err != nil {
 		return err
+	}
+	if e.ws.Remote() {
+		if err := step("removing the link", "link removed", func() (string, error) {
+			return "", e.deliver.Remove(ctx, user)
+		}); err != nil {
+			return err
+		}
 	}
 	if record.ProviderID != "" {
 		if err := e.deleteCert(ctx, record.ProviderID, "deleting the ACM entry", "ACM entry deleted"); err != nil {
@@ -72,19 +85,21 @@ func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error 
 	// record before the local cleanup: leftover files are harmless, but a
 	// record pointing at a deleted certificate is not.
 	e.users.Delete(user)
-	if err := e.users.Save(); err != nil {
+	if err := e.save(ctx); err != nil {
 		return err
 	}
+	e.saved()
 
-	if err := step("removing the files", "files removed", func() (string, error) {
-		if err := easyrsa.RemoveUserDir(e.cfg.Certs.OutputDir, user); err != nil {
-			return "", err
+	if !e.ws.Remote() { // S3 mode keeps no per-user files on disk
+		if err := step("removing the files", "files removed", func() (string, error) {
+			if err := easyrsa.RemoveUserDir(e.cfg.Certs.OutputDir, user); err != nil {
+				return "", err
+			}
+			return ui.Path(easyrsa.UserDir(e.cfg.Certs.OutputDir, user)) + "/, " + ui.Path(e.ovpn.Path(user)), e.ovpn.Remove(user)
+		}); err != nil {
+			return err
 		}
-		return ui.Path(easyrsa.UserDir(e.cfg.Certs.OutputDir, user)) + "/, " + ui.Path(e.ovpn.Path(user)), e.ovpn.Remove(user)
-	}); err != nil {
-		return err
 	}
-
 	ui.Done("%s can no longer connect; an open session ends within about a minute.", user)
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -61,11 +62,14 @@ func TestStatus(t *testing.T) {
 	// A fresh PKI: no CRL anywhere yet, and nothing revoked.
 	out, err := h.status()
 	wantStatus(t, out, err, false, "none yet", "none (nothing revoked yet)", "All good.")
+	if !regexp.MustCompile(`(?m)^easyrsa\s+\d+\.\d+\.\d+ `).MatchString(out) {
+		t.Errorf("status doesn't show the EasyRSA version:\n%s", out)
+	}
 
-	h.must(h.create("alice"))
-	h.must(h.renew("alice")) // revokes the first certificate and pushes the CRL
+	h.must(h.create("max"))
+	h.must(h.renew("max")) // revokes the first certificate and pushes the CRL
 	out, err = h.status()
-	wantStatus(t, out, err, false, "matches your PKI", "1 revoked", "alice", "server", "client-root")
+	wantStatus(t, out, err, false, "matches your PKI", "1 revoked", "max", "server", "client-root")
 
 	// Expiring within 30 days needs attention; expired is critical.
 	h.cloud.endpointCerts[fakeServerID] = time.Now().AddDate(0, 0, 10)
@@ -77,7 +81,7 @@ func TestStatus(t *testing.T) {
 	h.cloud.endpointCerts[fakeServerID] = time.Now().AddDate(5, 0, 0)
 
 	// A user's ACM entry deleted behind cvpnctl's back.
-	r, _ := h.record("alice")
+	r, _ := h.record("max")
 	delete(h.cloud.certs, r.ProviderID)
 	out, err = h.status()
 	wantStatus(t, out, err, true, "ACM entry missing")
@@ -85,10 +89,10 @@ func TestStatus(t *testing.T) {
 
 func TestStatusComparesEndpointCRL(t *testing.T) {
 	h := newHarness(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	h.must(h.create("bob"))
 	h.must(h.create("carol"))
-	h.must(h.revoke("alice"))
+	h.must(h.revoke("max"))
 	out, err := h.status()
 	wantStatus(t, out, err, false, "matches your PKI")
 
@@ -140,8 +144,8 @@ func mustRead(t *testing.T, path string) []byte {
 // of step reports both.
 func TestStatusReportsAllCRLProblems(t *testing.T) {
 	h := newHarness(t)
-	h.must(h.create("alice"))
-	h.must(h.revoke("alice")) // pushes a CRL, valid for 180 days
+	h.must(h.create("max"))
+	h.must(h.revoke("max")) // pushes a CRL, valid for 180 days
 	h.must(h.easyrsa(h.pki).BuildCert("dave"))
 	h.must(h.easyrsa(h.pki).Revoke("dave")) // revoked locally, not pushed
 
@@ -157,13 +161,21 @@ func TestStatusReportsAllCRLProblems(t *testing.T) {
 
 func TestStatusUnreadableCertificate(t *testing.T) {
 	h := newHarness(t)
-	h.must(h.create("alice"))
-	if err := os.WriteFile(filepath.Join(h.pki, "issued", "alice.crt"), []byte("garbage"), 0o600); err != nil {
+	h.must(h.create("max"))
+	if err := os.WriteFile(filepath.Join(h.pki, "issued", "max.crt"), []byte("garbage"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, err := h.status()
 	wantStatus(t, out, err, true, "certificate unreadable")
 	if strings.Contains(out, "revoked outside cvpnctl") {
 		t.Errorf("an unreadable certificate was reported as missing:\n%s", out)
+	}
+}
+
+func TestStatusCRLLabel(t *testing.T) {
+	h := newHarness(t)
+	out, _ := h.status()
+	if !strings.Contains(out, "CRL (PKI)") || strings.Contains(out, "CRL (local)") {
+		t.Errorf("want the CRL row labelled 'CRL (PKI)':\n%s", out)
 	}
 }

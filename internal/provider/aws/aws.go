@@ -38,30 +38,35 @@ type Provider struct {
 	endpointID string
 }
 
-// New returns a Provider configured from cfg. It resolves credentials up
-// front, so a missing profile or an expired SSO session fails before a
-// command touches the PKI rather than at its first AWS call.
-func New(ctx context.Context, cfg *config.AWSConfig) (*Provider, error) {
+// LoadConfig returns the AWS SDK configuration for cfg's region and profile.
+// It resolves credentials up front, so a missing profile or expired
+// credentials fail before a command touches the PKI rather than at its first
+// AWS call.
+func LoadConfig(ctx context.Context, cfg *config.AWSConfig) (aws.Config, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.Region),
 	}
 	if cfg.Profile != "" {
 		opts = append(opts, awsconfig.WithSharedConfigProfile(cfg.Profile))
 	}
-
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("aws: load config: %w", err)
+		return aws.Config{}, fmt.Errorf("aws: load config: %w", err)
 	}
 	if _, err := awsCfg.Credentials.Retrieve(ctx); err != nil {
-		return nil, fmt.Errorf("aws: resolve credentials: %w", err)
+		return aws.Config{}, fmt.Errorf("aws: resolve credentials: %w", err)
 	}
+	return awsCfg, nil
+}
 
+// NewFromConfig returns a Provider for the Client VPN endpoint endpointID,
+// using awsCfg (from LoadConfig).
+func NewFromConfig(awsCfg aws.Config, endpointID string) *Provider {
 	return &Provider{
 		acm:        acm.NewFromConfig(awsCfg),
 		ec2:        ec2.NewFromConfig(awsCfg),
-		endpointID: cfg.VPNEndpointID,
-	}, nil
+		endpointID: endpointID,
+	}
 }
 
 // ImportCert uploads the certificate, private key, and CA chain to ACM.
@@ -109,10 +114,6 @@ func (p *Provider) DeleteCert(ctx context.Context, arn string) error {
 // ImportCRL uploads the CRL at crlFile to the configured Client VPN endpoint.
 // This causes AWS to immediately refuse connections from revoked certificates.
 func (p *Provider) ImportCRL(ctx context.Context, crlFile string) error {
-	if p.endpointID == "" {
-		return fmt.Errorf("aws: vpn_endpoint_id is required for CRL import")
-	}
-
 	data, err := os.ReadFile(crlFile)
 	if err != nil {
 		return fmt.Errorf("aws: read CRL: %w", err)

@@ -26,11 +26,27 @@ const (
 )
 
 var (
-	stdout   io.Writer = os.Stdout
-	stderr   io.Writer = os.Stderr
-	colorOut           = useColor(os.Stdout)
-	colorErr           = useColor(os.Stderr)
+	// stdout and stderr override os.Stdout/os.Stderr in tests. When nil,
+	// output goes to whatever os.Stdout/os.Stderr are at the time of writing.
+	stdout, stderr io.Writer
+
+	colorOut = useColor(os.Stdout)
+	colorErr = useColor(os.Stderr)
 )
+
+func outW() io.Writer {
+	if stdout != nil {
+		return stdout
+	}
+	return os.Stdout
+}
+
+func errW() io.Writer {
+	if stderr != nil {
+		return stderr
+	}
+	return os.Stderr
+}
 
 func useColor(f *os.File) bool {
 	if os.Getenv("NO_COLOR") != "" {
@@ -54,9 +70,9 @@ func paint(on bool, color, s string) string {
 	return color + s + reset
 }
 
-// Title prints the line that starts a command, e.g. "Creating alice".
+// Title prints the line that starts a command, e.g. "Creating max".
 func Title(format string, args ...any) {
-	line(stdout, paint(colorOut, bold, fmt.Sprintf(format, args...)))
+	line(outW(), paint(colorOut, bold, fmt.Sprintf(format, args...)))
 }
 
 // OK prints a completed step: "  ✓ label   detail".
@@ -65,28 +81,28 @@ func OK(label, detail string) {
 	if detail != "" {
 		msg = fmt.Sprintf("  %s %-26s %s", paint(colorOut, green, "✓"), label, detail)
 	}
-	line(stdout, msg)
+	line(outW(), msg)
 }
 
 // Fail prints the step that failed: "  ✗ label". The error itself is printed
 // by the caller.
 func Fail(label string) {
-	line(stderr, "  "+paint(colorErr, red, "✗")+" "+label)
+	line(errW(), "  "+paint(colorErr, red, "✗")+" "+label)
 }
 
 // Warn prints a non-fatal problem: "  ! message".
 func Warn(format string, args ...any) {
-	line(stderr, "  "+paint(colorErr, yellow, "!")+" "+fmt.Sprintf(format, args...))
+	line(errW(), "  "+paint(colorErr, yellow, "!")+" "+fmt.Sprintf(format, args...))
 }
 
 // Note prints a secondary detail, such as what was cleaned up after a failure.
 func Note(format string, args ...any) {
-	line(stderr, "  "+paint(colorErr, dim, "· "+fmt.Sprintf(format, args...)))
+	line(errW(), "  "+paint(colorErr, dim, "· "+fmt.Sprintf(format, args...)))
 }
 
 // Done prints the closing line of a successful command.
 func Done(format string, args ...any) {
-	line(stdout, fmt.Sprintf("Done. "+format, args...))
+	line(outW(), fmt.Sprintf("Done. "+format, args...))
 }
 
 // Path shortens a path under the home directory to start with ~.

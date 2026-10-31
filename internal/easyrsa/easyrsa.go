@@ -47,36 +47,15 @@ var MinVersion = []int{3, 2, 7}
 
 var versionLine = regexp.MustCompile(`(?m)^Version:\s+(\d+)\.(\d+)\.(\d+)\s*$`)
 
-// CheckVersion fails unless the configured easyrsa script is a release of
-// MinVersion or newer. Git checkouts report "~VER~" rather than a version and
-// are rejected too.
-func (c *Client) CheckVersion() error {
-	out, err := c.versionOutput()
-	if err != nil {
-		return err
-	}
-	return checkVersionOutput(c.script(), out)
-}
-
-// Version returns the EasyRSA version, e.g. "3.2.7".
-func (c *Client) Version() (string, error) {
-	out, err := c.versionOutput()
-	if err != nil {
-		return "", err
-	}
-	m := versionLine.FindStringSubmatch(out)
-	if m == nil {
-		return "", fmt.Errorf("easyrsa: can't tell the version of %s", c.script())
-	}
-	return m[1] + "." + m[2] + "." + m[3], nil
-}
-
-func (c *Client) versionOutput() (string, error) {
+// CheckVersion returns the version of the configured easyrsa script, e.g.
+// "3.2.7", and fails unless it is a release of MinVersion or newer. Git
+// checkouts report "~VER~" rather than a version and are rejected too.
+func (c *Client) CheckVersion() (string, error) {
 	out, err := exec.Command(c.script(), "--version").Output()
 	if err != nil {
 		return "", fmt.Errorf("easyrsa: run %s --version: %w", c.script(), err)
 	}
-	return string(out), nil
+	return checkVersionOutput(c.script(), string(out))
 }
 
 // Dir returns the directory of the easyrsa script.
@@ -84,20 +63,20 @@ func (c *Client) Dir() string {
 	return c.cfg.Path
 }
 
-func checkVersionOutput(script, out string) error {
+func checkVersionOutput(script, out string) (string, error) {
 	want := fmt.Sprintf("%d.%d.%d", MinVersion[0], MinVersion[1], MinVersion[2])
 	m := versionLine.FindStringSubmatch(out)
 	if m == nil {
-		return fmt.Errorf("easyrsa: can't tell the version of %s (a git checkout instead of a release?); cvpnctl needs an EasyRSA release, %s or later", script, want)
+		return "", fmt.Errorf("easyrsa: can't tell the version of %s (a git checkout instead of a release?); cvpnctl needs an EasyRSA release, %s or later", script, want)
 	}
 	got := make([]int, 3)
 	for i := range got {
 		got[i], _ = strconv.Atoi(m[i+1]) // the regexp guarantees digits
 	}
 	if slices.Compare(got, MinVersion) < 0 {
-		return fmt.Errorf("easyrsa: %s is version %s.%s.%s; cvpnctl needs %s or later", script, m[1], m[2], m[3], want)
+		return "", fmt.Errorf("easyrsa: %s is version %s.%s.%s; cvpnctl needs %s or later", script, m[1], m[2], m[3], want)
 	}
-	return nil
+	return m[1] + "." + m[2] + "." + m[3], nil
 }
 
 // Files returns where the PKI keeps user's certificate, key, and the CA.
@@ -118,8 +97,12 @@ func (c *Client) CAEncrypted() bool {
 		return false
 	}
 	defer func() { _ = f.Close() }()
-	first, _ := bufio.NewReader(f).ReadString('\n')
-	return strings.Contains(first, "ENCRYPTED")
+	// PKCS#8 says so in the BEGIN line, traditional PEM in a Proc-Type
+	// header right below it.
+	r := bufio.NewReader(f)
+	first, _ := r.ReadString('\n')
+	second, _ := r.ReadString('\n')
+	return strings.Contains(first, "ENCRYPTED") || strings.HasPrefix(second, "Proc-Type:") && strings.Contains(second, "ENCRYPTED")
 }
 
 // CACert returns the CA certificate.
@@ -127,18 +110,51 @@ func (c *Client) CACert() (*x509.Certificate, error) {
 	return readCert(c.Files("").CA)
 }
 
-// RevokedSerials returns the serial numbers the PKI's index.txt marks as
-// revoked, normalised with NormSerial. They are what the next CRL will list.
-func (c *Client) RevokedSerials() (map[string]bool, error) {
+// IndexEntry is one certificate in the PKI's index.txt.
+type IndexEntry struct {
+	Status string // "V" valid, "R" revoked, "E" expired
+	Serial string // normalised with NormSerial
+	Name   string // the subject's common name
+}
+
+// Index returns every certificate the PKI has issued, in index.txt order.
+func (c *Client) Index() ([]IndexEntry, error) {
 	data, err := os.ReadFile(filepath.Join(c.cfg.PKIDir, "index.txt"))
 	if err != nil {
 		return nil, fmt.Errorf("easyrsa: %w", err)
 	}
-	revoked := make(map[string]bool)
+	var entries []IndexEntry
 	for _, line := range strings.Split(string(data), "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) >= 4 && f[0] == "R" {
-			revoked[NormSerial(f[3])] = true
+		if len(f) < 6 {
+			continue
+		}
+		entries = append(entries, IndexEntry{Status: f[0], Serial: NormSerial(f[3]), Name: commonName(f[5])})
+	}
+	return entries, nil
+}
+
+// commonName extracts CN from a subject like "/C=CH/CN=max/O=x".
+func commonName(subject string) string {
+	for _, part := range strings.Split(subject, "/") {
+		if cn, ok := strings.CutPrefix(part, "CN="); ok {
+			return cn
+		}
+	}
+	return subject
+}
+
+// RevokedSerials returns the serial numbers the PKI's index.txt marks as
+// revoked, normalised with NormSerial. They are what the next CRL will list.
+func (c *Client) RevokedSerials() (map[string]bool, error) {
+	entries, err := c.Index()
+	if err != nil {
+		return nil, err
+	}
+	revoked := make(map[string]bool)
+	for _, e := range entries {
+		if e.Status == "R" {
+			revoked[e.Serial] = true
 		}
 	}
 	return revoked, nil
@@ -166,15 +182,31 @@ func (c *Client) CRLInfo() (revoked int, nextUpdate time.Time, err error) {
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("easyrsa: %w", err)
 	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return 0, time.Time{}, fmt.Errorf("easyrsa: %s contains no PEM data", c.CRLPath())
-	}
-	crl, err := x509.ParseRevocationList(block.Bytes)
+	crl, err := ParseCRL(data)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("easyrsa: parse %s: %w", c.CRLPath(), err)
+		return 0, time.Time{}, fmt.Errorf("easyrsa: %s: %w", c.CRLPath(), err)
 	}
 	return len(crl.RevokedCertificateEntries), crl.NextUpdate, nil
+}
+
+// ParseCRL parses a PEM-encoded CRL, such as crl.pem or the one exported from
+// the VPN endpoint.
+func ParseCRL(data []byte) (*x509.RevocationList, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("contains no PEM data")
+	}
+	return x509.ParseRevocationList(block.Bytes)
+}
+
+// CRLSerials returns the serial numbers crl revokes, normalised with
+// NormSerial so they compare equal to RevokedSerials.
+func CRLSerials(crl *x509.RevocationList) map[string]bool {
+	serials := make(map[string]bool, len(crl.RevokedCertificateEntries))
+	for _, r := range crl.RevokedCertificateEntries {
+		serials[NormSerial(r.SerialNumber.Text(16))] = true
+	}
+	return serials
 }
 
 // readCert parses the first certificate in a PEM file. EasyRSA puts a text

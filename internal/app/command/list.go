@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,7 +10,7 @@ import (
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
-	"github.com/aartinian/cvpnctl/internal/state"
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -20,31 +21,31 @@ func NewListCmd(opts *Options) *cobra.Command {
 		Use:   "list",
 		Short: "List managed users with certificate expiry and provider IDs",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runList(opts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runList(cmd.Context(), opts)
 		},
 	}
 }
 
 // runList reads only the config, the state file, and the PKI; it needs no
-// cloud credentials.
-func runList(opts *Options) error {
+// provider credentials (in S3 mode, only read access to the store).
+func runList(ctx context.Context, opts *Options) error {
 	cfg, err := opts.loadConfig()
 	if err != nil {
 		return err
 	}
-	users, err := state.Load(cfg.Certs.OutputDir)
+	e, err := opts.newEnv(ctx, cfg, store.Read, "list")
 	if err != nil {
 		return err
 	}
+	defer e.close()
 
-	records := users.All()
+	records := e.users.All()
 	if len(records) == 0 {
 		fmt.Println("no users found")
 		return nil
 	}
 
-	pki := easyrsa.New(&cfg.EasyRSA, false)
 	now := time.Now()
 	// tabwriter buffers until Flush, which reports any write error, so the
 	// individual row writes need no checks of their own.
@@ -53,7 +54,7 @@ func runList(opts *Options) error {
 	for _, r := range records {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			r.User,
-			expiryCell(pki, r.User, now),
+			expiryCell(e.pki, r.User, now),
 			r.CreatedAt.Format(time.DateOnly),
 			r.UpdatedAt.Format(time.DateOnly),
 			r.ProviderID,
@@ -62,8 +63,8 @@ func runList(opts *Options) error {
 	return w.Flush()
 }
 
-// expiryCell shows when user's certificate expires: yellow within 30 days,
-// red once expired.
+// expiryCell shows when user's certificate expires, rated as status rates it:
+// yellow within warnDays, red once expired.
 func expiryCell(pki *easyrsa.Client, user string, now time.Time) string {
 	exp, err := pki.Expiry(user)
 	switch {
@@ -71,11 +72,6 @@ func expiryCell(pki *easyrsa.Client, user string, now time.Time) string {
 		return ui.Cell("(no cert)", ui.Critical)
 	case err != nil:
 		return ui.Cell("(unreadable)", ui.Critical)
-	case now.After(exp):
-		return ui.Cell(exp.Format(time.DateOnly), ui.Critical)
-	case exp.Sub(now) < 30*24*time.Hour:
-		return ui.Cell(exp.Format(time.DateOnly), ui.Attention)
-	default:
-		return ui.Cell(exp.Format(time.DateOnly), ui.Normal)
 	}
+	return ui.Cell(exp.Format(time.DateOnly), expiryRow("", "", exp, now).level)
 }

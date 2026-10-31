@@ -223,3 +223,112 @@ func TestLoadIgnoresBinaryNamedCvpnctl(t *testing.T) {
 		t.Errorf("err = %v, want 'no config file found'", err)
 	}
 }
+
+const s3Config = `
+easyrsa:
+  path: $DIR/easyrsa
+store:
+  bucket: acme-vpn-pki
+  kms_key_id: alias/cvpnctl
+aws:
+  region: eu-central-1
+  vpn_endpoint_id: cvpn-endpoint-abc
+`
+
+func TestLoadS3Mode(t *testing.T) {
+	_, write := fixture(t)
+	cfg, err := Load(write(s3Config))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.S3Mode() {
+		t.Fatal("S3Mode() = false, want true")
+	}
+	if cfg.Store.LinkHours != 24 {
+		t.Errorf("LinkHours = %d, want default 24", cfg.Store.LinkHours)
+	}
+}
+
+func TestLocalModeIsNotS3(t *testing.T) {
+	_, write := fixture(t)
+	cfg, err := Load(write(validConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.S3Mode() || cfg.Store != nil {
+		t.Errorf("local config: S3Mode()=%v Store=%v", cfg.S3Mode(), cfg.Store)
+	}
+}
+
+func TestLoadS3ModeRejectsLocalPaths(t *testing.T) {
+	for key, yaml := range map[string]string{
+		"easyrsa.pki_dir":  "  pki_dir: $DIR/easyrsa/pki\n",
+		"certs.output_dir": "certs: {output_dir: ~/certs}\n",
+		"ovpn.output_dir":  "ovpn: {output_dir: ~/clients}\n",
+		"ovpn.template":    "ovpn: {template: $DIR/base.ovpn}\n",
+	} {
+		t.Run(key, func(t *testing.T) {
+			_, write := fixture(t)
+			body := s3Config
+			if key == "easyrsa.pki_dir" {
+				body = strings.Replace(body, "  path: $DIR/easyrsa\n", "  path: $DIR/easyrsa\n"+yaml, 1)
+			} else {
+				body += yaml
+			}
+			_, err := Load(write(body))
+			if err == nil || !strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "not allowed with store") {
+				t.Errorf("err = %v, want it to name %s and say 'not allowed with store'", err, key)
+			}
+		})
+	}
+}
+
+func TestLoadS3ModeLinkHours(t *testing.T) {
+	for _, tt := range []struct {
+		hours   string
+		want    int
+		wantErr bool
+	}{{"1", 1, false}, {"168", 168, false}, {"169", 0, true}, {"-1", 0, true}} {
+		_, write := fixture(t)
+		body := strings.Replace(s3Config, "  kms_key_id: alias/cvpnctl\n", "  kms_key_id: alias/cvpnctl\n  link_hours: "+tt.hours+"\n", 1)
+		cfg, err := Load(write(body))
+		switch {
+		case tt.wantErr && (err == nil || !strings.Contains(err.Error(), "link_hours must be 1–168")):
+			t.Errorf("link_hours %s: err = %v, want 'link_hours must be 1–168'", tt.hours, err)
+		case !tt.wantErr && (err != nil || cfg.Store.LinkHours != tt.want):
+			t.Errorf("link_hours %s: cfg=%v err=%v", tt.hours, cfg, err)
+		}
+	}
+}
+
+func TestLoadS3ModeRequires(t *testing.T) {
+	for field, line := range map[string]string{
+		"store.bucket":     "  bucket: acme-vpn-pki\n",
+		"store.kms_key_id": "  kms_key_id: alias/cvpnctl\n",
+	} {
+		_, write := fixture(t)
+		_, err := Load(write(strings.Replace(s3Config, line, "", 1)))
+		if err == nil || !strings.Contains(err.Error(), field+" is required") {
+			t.Errorf("without %s: err = %v", field, err)
+		}
+	}
+}
+
+func TestStorePrefixNormalised(t *testing.T) {
+	for prefix, want := range map[string]string{
+		"":         "lock",
+		"cvpnctl":  "cvpnctl/lock",
+		"cvpnctl/": "cvpnctl/lock",
+		"a/b":      "a/b/lock",
+	} {
+		_, write := fixture(t)
+		body := strings.Replace(s3Config, "  bucket: acme-vpn-pki\n", "  bucket: acme-vpn-pki\n  prefix: \""+prefix+"\"\n", 1)
+		cfg, err := Load(write(body))
+		if err != nil {
+			t.Fatalf("prefix %q: %v", prefix, err)
+		}
+		if got := cfg.Store.Key("lock"); got != want {
+			t.Errorf("prefix %q: Key(lock) = %q, want %q", prefix, got, want)
+		}
+	}
+}

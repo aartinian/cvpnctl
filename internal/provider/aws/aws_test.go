@@ -101,14 +101,14 @@ func TestNewChecksCredentials(t *testing.T) {
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", empty)
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
 
-	_, err := New(context.Background(), &config.AWSConfig{Region: "eu-central-1"})
+	_, err := LoadConfig(context.Background(), &config.AWSConfig{Region: "eu-central-1"})
 	if err == nil || !strings.Contains(err.Error(), "resolve credentials") {
 		t.Fatalf("err = %v, want a credentials error", err)
 	}
 
 	t.Setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "example")
-	if _, err := New(context.Background(), &config.AWSConfig{Region: "eu-central-1"}); err != nil {
+	if _, err := LoadConfig(context.Background(), &config.AWSConfig{Region: "eu-central-1"}); err != nil {
 		t.Errorf("with static credentials: %v", err)
 	}
 }

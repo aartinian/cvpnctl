@@ -6,6 +6,7 @@ package command
 // directory containing the easyrsa script to point them at a specific copy.
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
@@ -21,6 +22,8 @@ import (
 	"github.com/aartinian/cvpnctl/internal/config"
 	"github.com/aartinian/cvpnctl/internal/provider"
 	"github.com/aartinian/cvpnctl/internal/state"
+	"github.com/aartinian/cvpnctl/internal/store"
+	"github.com/aartinian/cvpnctl/internal/store/storetest"
 )
 
 // fakeCloud records what the commands send to the provider.
@@ -36,6 +39,11 @@ type fakeCloud struct {
 	// currently holds, as last pushed or as set by a test.
 	endpointCerts map[string]time.Time
 	crlPEM        []byte
+
+	// Hooks for S3-mode tests: afterImport runs right after a successful
+	// ImportCert; onPush gets the serials of every CRL being imported.
+	afterImport func()
+	onPush      func(revoked map[string]bool)
 }
 
 const (
@@ -72,6 +80,9 @@ func (f *fakeCloud) ImportCert(_ context.Context, certFile, _, _ string) (string
 	f.nextID++
 	id := fmt.Sprintf("cert-%d", f.nextID)
 	f.certs[id] = cert.SerialNumber.Text(16)
+	if f.afterImport != nil {
+		f.afterImport()
+	}
 	return id, nil
 }
 
@@ -102,15 +113,52 @@ func (f *fakeCloud) ImportCRL(_ context.Context, crlFile string) error {
 		f.revoked[e.SerialNumber.Text(16)] = true
 	}
 	f.crlPushes++
+	if f.onPush != nil {
+		f.onPush(f.revoked)
+	}
 	return nil
 }
 
 type harness struct {
-	t     *testing.T
-	opts  *Options
-	cloud *fakeCloud
-	dir   string
-	pki   string
+	t       *testing.T
+	opts    *Options
+	cloud   *fakeCloud
+	dir     string
+	pki     string
+	s3      *storetest.FakeS3 // non-nil in S3 mode
+	presign *stubPresigner
+}
+
+// pkiDir returns the PKI as it currently is: the local directory, or in S3
+// mode a fresh unpacked copy of the archive in the bucket.
+func (h *harness) pkiDir() string {
+	h.t.Helper()
+	if h.s3 == nil {
+		return h.pki
+	}
+	return filepath.Join(h.storedCopy(), "pki")
+}
+
+// stateDir is like pkiDir, for cvpnctl's state file.
+func (h *harness) stateDir() string {
+	h.t.Helper()
+	if h.s3 == nil {
+		return h.certsDir()
+	}
+	return filepath.Join(h.storedCopy(), "state")
+}
+
+func (h *harness) storedCopy() string {
+	h.t.Helper()
+	data, ok := h.s3.Object("cvpnctl/pki.tar.gz")
+	if !ok {
+		h.t.Fatal("no archive in the bucket")
+	}
+	dir := h.t.TempDir()
+	if err := store.Unpack(data, dir); err != nil {
+		h.t.Fatal(err)
+	}
+	return dir
 }
 
 func newHarness(t *testing.T) *harness {
@@ -188,8 +236,8 @@ func findEasyRSA(t *testing.T) string {
 func (h *harness) certsDir() string   { return filepath.Join(h.dir, "certs") }
 func (h *harness) clientsDir() string { return filepath.Join(h.dir, "clients") }
 
-func (h *harness) create(user string) error { return runCreate(context.Background(), h.opts, user) }
-func (h *harness) renew(user string) error  { return runRenew(context.Background(), h.opts, user) }
+func (h *harness) create(user string) error { return runCreate(context.Background(), h.opts, user, 0) }
+func (h *harness) renew(user string) error  { return runRenew(context.Background(), h.opts, user, 0) }
 func (h *harness) revoke(user string) error {
 	return runRevoke(context.Background(), h.opts, user, true)
 }
@@ -204,7 +252,7 @@ func (h *harness) must(err error) {
 // serial returns the serial of user's currently issued certificate.
 func (h *harness) serial(user string) string {
 	h.t.Helper()
-	cert, err := readCert(filepath.Join(h.pki, "issued", user+".crt"))
+	cert, err := readCert(filepath.Join(h.pkiDir(), "issued", user+".crt"))
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -213,7 +261,7 @@ func (h *harness) serial(user string) string {
 
 func (h *harness) record(user string) (state.UserRecord, bool) {
 	h.t.Helper()
-	s, err := state.Load(h.certsDir())
+	s, err := state.Load(h.stateDir())
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -239,14 +287,14 @@ func readCert(path string) (*x509.Certificate, error) {
 
 func TestLifecycle(t *testing.T) {
 	h := newHarness(t)
-	ovpnPath := filepath.Join(h.clientsDir(), "alice.ovpn")
-	userDir := filepath.Join(h.certsDir(), "alice")
+	ovpnPath := filepath.Join(h.clientsDir(), "max.ovpn")
+	userDir := filepath.Join(h.certsDir(), "max")
 
 	// create
-	h.must(h.create("alice"))
-	first := h.serial("alice")
+	h.must(h.create("max"))
+	first := h.serial("max")
 
-	if r, ok := h.record("alice"); !ok || r.ProviderID != "cert-1" {
+	if r, ok := h.record("max"); !ok || r.ProviderID != "cert-1" {
 		t.Fatalf("state after create = %+v, %v", r, ok)
 	}
 	if h.cloud.certs["cert-1"] != first {
@@ -256,7 +304,7 @@ func TestLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# alice", "<cert>\n-----BEGIN CERTIFICATE-----", "BEGIN PRIVATE KEY"} {
+	for _, want := range []string{"# max", "<cert>\n-----BEGIN CERTIFICATE-----", "BEGIN PRIVATE KEY"} {
 		if !strings.Contains(string(conf), want) {
 			t.Errorf(".ovpn missing %q", want)
 		}
@@ -264,24 +312,24 @@ func TestLifecycle(t *testing.T) {
 	if strings.Contains(string(conf), "Certificate:") {
 		t.Error(".ovpn contains EasyRSA's text dump; only the PEM block belongs there")
 	}
-	for _, p := range []string{ovpnPath, filepath.Join(userDir, "alice.key")} {
+	for _, p := range []string{ovpnPath, filepath.Join(userDir, "max.key")} {
 		if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != 0o600 {
 			t.Errorf("%s: mode not 0600 (%v)", p, err)
 		}
 	}
 
-	if err := h.create("alice"); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := h.create("max"); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("second create: err = %v, want 'already exists'", err)
 	}
 
 	// renew
-	h.must(h.renew("alice"))
-	second := h.serial("alice")
+	h.must(h.renew("max"))
+	second := h.serial("max")
 
 	if second == first {
 		t.Fatal("renew did not issue a new certificate")
 	}
-	if r, _ := h.record("alice"); r.ProviderID != "cert-2" {
+	if r, _ := h.record("max"); r.ProviderID != "cert-2" {
 		t.Errorf("state after renew points at %s, want cert-2", r.ProviderID)
 	}
 	if len(h.cloud.certs) != 1 || h.cloud.certs["cert-2"] != second {
@@ -290,12 +338,12 @@ func TestLifecycle(t *testing.T) {
 	if !h.cloud.revoked[first] || h.cloud.revoked[second] {
 		t.Errorf("CRL after renew = %v, want old serial %s revoked and new %s not", h.cloud.revoked, first, second)
 	}
-	if copied, err := readCert(filepath.Join(userDir, "alice.crt")); err != nil || copied.SerialNumber.Text(16) != second {
+	if copied, err := readCert(filepath.Join(userDir, "max.crt")); err != nil || copied.SerialNumber.Text(16) != second {
 		t.Errorf("per-user copy is not the new certificate (%v)", err)
 	}
 
 	// revoke
-	h.must(h.revoke("alice"))
+	h.must(h.revoke("max"))
 
 	if len(h.cloud.certs) != 0 {
 		t.Errorf("provider after revoke still holds %v", h.cloud.certs)
@@ -303,15 +351,15 @@ func TestLifecycle(t *testing.T) {
 	if !h.cloud.revoked[second] {
 		t.Errorf("CRL after revoke does not list %s", second)
 	}
-	if _, ok := h.record("alice"); ok {
-		t.Error("alice still in state after revoke")
+	if _, ok := h.record("max"); ok {
+		t.Error("max still in state after revoke")
 	}
 	if h.exists(userDir) || h.exists(ovpnPath) {
 		t.Error("revoke left the per-user directory or .ovpn behind")
 	}
 
 	// The name is free again.
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 }
 
 func TestCreateRollsBackWhenImportFails(t *testing.T) {
@@ -330,6 +378,9 @@ func TestCreateRollsBackWhenImportFails(t *testing.T) {
 	if _, ok := h.record("bob"); ok {
 		t.Error("failed create left bob in state")
 	}
+	if h.exists(filepath.Join(h.certsDir(), "bob")) {
+		t.Error("failed create left bob's key in the per-user directory")
+	}
 
 	h.cloud.failImport = false
 	h.must(h.create("bob"))
@@ -340,9 +391,19 @@ func TestRenewResumesAfterImportFailure(t *testing.T) {
 	h.must(h.create("carol"))
 	first := h.serial("carol")
 
+	copied, err := os.ReadFile(filepath.Join(h.certsDir(), "carol", "carol.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	h.cloud.failImport = true
 	if err := h.renew("carol"); err == nil {
 		t.Fatal("renew succeeded despite import failure")
+	}
+	// The unrecorded certificate is gone from the PKI; its copy must not
+	// have replaced the user's current one.
+	if now, _ := os.ReadFile(filepath.Join(h.certsDir(), "carol", "carol.crt")); !bytes.Equal(now, copied) {
+		t.Error("failed renew replaced the per-user copy with the unrecorded certificate")
 	}
 	if r, _ := h.record("carol"); r.ProviderID != "cert-1" {
 		t.Errorf("failed renew changed state to %s", r.ProviderID)

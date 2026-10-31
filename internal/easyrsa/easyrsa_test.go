@@ -29,7 +29,7 @@ func TestCheckVersionOutput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := checkVersionOutput("/x/easyrsa", tt.out)
+			_, err := checkVersionOutput("/x/easyrsa", tt.out)
 			switch {
 			case tt.wantErr == "" && err != nil:
 				t.Errorf("rejected: %v", err)
@@ -91,12 +91,14 @@ func TestRunExplainsMissingTerminalForPassphrase(t *testing.T) {
 
 func TestCAEncrypted(t *testing.T) {
 	for name, tt := range map[string]struct {
-		key  string // first line of private/ca.key; "" means no file
+		key  string // first lines of private/ca.key; "" means no file
 		want bool
 	}{
-		"encrypted":   {"-----BEGIN ENCRYPTED PRIVATE KEY-----", true},
-		"unencrypted": {"-----BEGIN PRIVATE KEY-----", false},
-		"missing":     {"", false},
+		"encrypted":               {"-----BEGIN ENCRYPTED PRIVATE KEY-----", true},
+		"unencrypted":             {"-----BEGIN PRIVATE KEY-----", false},
+		"traditional encrypted":   {"-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,00", true},
+		"traditional unencrypted": {"-----BEGIN RSA PRIVATE KEY-----", false},
+		"missing":                 {"", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -117,7 +119,7 @@ func TestCAEncrypted(t *testing.T) {
 
 func TestRevokedSerials(t *testing.T) {
 	dir := t.TempDir()
-	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=alice\n" +
+	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=max\n" +
 		"R\t270420223927Z\t261013150000Z\t0cd34\tunknown\t/CN=bob\n" +
 		"R\t250120210018Z\t261013150000Z\tEF56\tunknown\t/CN=carol\n"
 	if err := os.WriteFile(filepath.Join(dir, "index.txt"), []byte(index), 0o600); err != nil {
@@ -129,5 +131,28 @@ func TestRevokedSerials(t *testing.T) {
 	}
 	if len(got) != 2 || !got["CD34"] || !got["EF56"] {
 		t.Errorf("RevokedSerials() = %v, want CD34 and EF56", got)
+	}
+}
+
+func TestIndex(t *testing.T) {
+	dir := t.TempDir()
+	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=max\n" +
+		"R\t270420223927Z\t261013150000Z\t0cd34\tunknown\t/CN=bob\n" +
+		"R\t250120210018Z\t261013150000Z,keyCompromise\tEF56\tunknown\t/C=CH/CN=carol/O=x\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.txt"), []byte(index), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(&config.EasyRSAConfig{PKIDir: dir}, false).Index()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []IndexEntry{{"V", "AB12", "max"}, {"R", "CD34", "bob"}, {"R", "EF56", "carol"}}
+	if len(got) != len(want) {
+		t.Fatalf("Index() = %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("entry %d = %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }

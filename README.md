@@ -1,36 +1,35 @@
-# cvpnctl
+<p align="center"><img src="docs/logo.svg" alt="cvpnctl" width="236"></p>
 
-[![CI](https://github.com/aartinian/cvpnctl/actions/workflows/ci.yaml/badge.svg)](https://github.com/aartinian/cvpnctl/actions/workflows/ci.yaml)
-[![Release](https://img.shields.io/github/v/release/aartinian/cvpnctl)](https://github.com/aartinian/cvpnctl/releases)
-[![Go](https://img.shields.io/github/go-mod/go-version/aartinian/cvpnctl)](go.mod)
-[![License](https://img.shields.io/github/license/aartinian/cvpnctl)](LICENSE)
+<p align="center"><b>User certificates for AWS Client VPN, one command at a time.</b><br>Issue, renew and revoke with EasyRSA; cvpnctl handles ACM, the CRL and the <code>.ovpn</code> files.</p>
 
-A command-line tool that manages user certificates for an
-[AWS Client VPN](https://docs.aws.amazon.com/vpn/latest/clientvpn-admin/what-is.html)
-endpoint, using [EasyRSA](https://github.com/OpenVPN/easy-rsa).
+<p align="center">
+<a href="https://github.com/aartinian/cvpnctl/actions/workflows/ci.yaml"><img src="https://github.com/aartinian/cvpnctl/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
+<a href="https://github.com/aartinian/cvpnctl/releases"><img src="https://img.shields.io/github/v/release/aartinian/cvpnctl" alt="Release"></a>
+<a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/aartinian/cvpnctl" alt="Go"></a>
+<a href="LICENSE"><img src="https://img.shields.io/github/license/aartinian/cvpnctl" alt="License"></a>
+</p>
 
-For each user, it issues a certificate, imports it to AWS Certificate Manager
-(ACM), and writes a `.ovpn` file. Users import that file into the
-[AWS VPN Client](https://aws.amazon.com/vpn/client-vpn-download/),
-[OpenVPN Connect](https://openvpn.net/client/), or any other OpenVPN client.
-To remove a user, it revokes the certificate and uploads the updated
-certificate revocation list (CRL) to the endpoint.
+<p align="center"><img src="docs/demo.svg" alt="cvpnctl create issues a certificate, imports it to ACM, saves the PKI to S3 and prints a download link; cvpnctl status then shows that everything is in order" width="823"></p>
 
-```
-$ cvpnctl create -u max.mustermann
-Creating max.mustermann
-  ✓ certificate issued         expires 2029-01-15
-  ✓ files saved                ~/vpn/certs/max.mustermann/
-  ✓ imported to ACM            …/287fe781
-  ✓ .ovpn written              ~/vpn/clients/max.mustermann.ovpn
-Done. Send ~/vpn/clients/max.mustermann.ovpn to max.mustermann securely.
-```
+## Why
+
+An [AWS Client VPN](https://docs.aws.amazon.com/vpn/latest/clientvpn-admin/what-is.html) endpoint with certificate (mutual) authentication means running your own PKI. Adding a user takes `easyrsa build-client-full`, `aws acm import-certificate`, and pasting the certificate and key into a `.ovpn` file; removing one takes `easyrsa revoke`, `gen-crl`, and importing the CRL to the endpoint. Miss a step and a revoked user can still connect, or a certificate expires unnoticed.
+
+cvpnctl turns each of those into one command, built on [EasyRSA](https://github.com/OpenVPN/easy-rsa) and your own AWS credentials.
+
+## Features
+
+- **One command per change:** `create`, `renew` and `revoke` do every step: EasyRSA, ACM, the CRL on the endpoint, and the `.ovpn` file.
+- **Revocation that sticks:** the CRL is pushed on every revoke and renew; access ends within about a minute, open sessions included.
+- **Safe to re-run:** everything that can be checked is checked before the first change, and a command that fails halfway can simply be run again.
+- **Expiry and drift at a glance:** `status` shows what expires when (CA, server certificate, users, CRL) and whether the endpoint's CRL matches your PKI, with exit codes made for cron.
+- **Shared by a team:** optionally keep the PKI in S3, with a lock, a version for every change, restore, and expiring download links instead of `.ovpn` files on disk.
+- **Nothing to host:** a single Go binary for Linux and macOS; works with any OpenVPN client, including the [AWS VPN Client](https://aws.amazon.com/vpn/client-vpn-download/) and [OpenVPN Connect](https://openvpn.net/client/).
 
 ## Requirements
 
 - Linux or macOS
-- [EasyRSA](https://github.com/OpenVPN/easy-rsa/releases) 3.2.7 or later, from
-  a release or Homebrew. Most distro packages are older; cvpnctl refuses them.
+- [EasyRSA](https://github.com/OpenVPN/easy-rsa/releases) 3.2.7 or later, from a release or Homebrew. Most distro packages are older; cvpnctl refuses them.
 - An EasyRSA PKI whose CA your Client VPN endpoint trusts
 - A Client VPN endpoint that uses certificate (mutual) authentication
 - AWS credentials with these permissions:
@@ -102,9 +101,7 @@ ovpn:
   output_dir: ~/vpn/clients     # where <user>.ovpn files are written
 ```
 
-**2. The template.** Start from the client configuration AWS generates for your
-endpoint, remove its `<ca>` block, and add placeholders for the CA, certificate,
-and key:
+**2. The template.** Start from the client configuration AWS generates for your endpoint, remove its `<ca>` block, and add placeholders for the CA, certificate, and key:
 
 ```
 aws ec2 export-client-vpn-client-configuration \
@@ -115,15 +112,21 @@ printf '\n{{.CA}}\n{{.Cert}}\n{{.Key}}\n' >> ~/.config/cvpnctl/base.ovpn
 
 [`base.ovpn.example`](base.ovpn.example) shows the result.
 
-**3. Check it:** `cvpnctl status` loads everything, contacts AWS, and changes
-nothing.
+**3. Check it:** `cvpnctl status` loads everything, contacts AWS, and changes nothing.
 
-cvpnctl uses `--config <file>` if given. Otherwise it uses the first of these
-that exists: `./cvpnctl.yaml` in the current directory,
-`~/.config/cvpnctl/cvpnctl.yaml`, `/etc/cvpnctl/cvpnctl.yaml`. It warns if a
-later one is being ignored.
+cvpnctl uses `--config <file>` if given. Otherwise it uses the first of these that exists: `./cvpnctl.yaml` in the current directory, `~/.config/cvpnctl/cvpnctl.yaml`, `/etc/cvpnctl/cvpnctl.yaml`. It warns if a later one is being ignored.
 
 ## Commands
+
+```
+$ cvpnctl create -u max.mustermann
+Creating max.mustermann
+  ✓ certificate issued         expires 2029-01-15
+  ✓ imported to ACM            …/287fe781
+  ✓ files saved                ~/vpn/certs/max.mustermann/
+  ✓ .ovpn written              ~/vpn/clients/max.mustermann.ovpn
+Done. Send ~/vpn/clients/max.mustermann.ovpn to max.mustermann securely.
+```
 
 | Command | What it does |
 |---|---|
@@ -139,13 +142,70 @@ later one is being ignored.
 - `revoke` asks for confirmation; `--yes` skips it, for scripts.
 - `-v` shows EasyRSA's output; `-c <file>` selects a config file.
 
-`status` exits with `0` when all is well, `2` when something expires within 30
-days, has expired, or the endpoint's CRL is out of date, and `1` when the
-check itself fails. To get a monthly reminder through cron:
+In S3 mode (below) there are also `link`, `template show|set`, `unlock`, and `store migrate|versions|restore`.
+
+`status` exits with `0` when all is well, `2` when something expires within 30 days, has expired, or the endpoint's CRL is out of date, and `1` when the check itself fails. To get a monthly reminder through cron:
 
 ```
 0 9 1 * * out=$(/usr/local/bin/cvpnctl status 2>&1) || echo "$out"
 ```
+
+## Shared PKI in S3
+
+By default the PKI, cvpnctl's state file and the template are local files. For several admins, keep them in S3 instead: add a `store` section and remove `easyrsa.pki_dir`, `certs.output_dir` and the `ovpn` section.
+
+```yaml
+easyrsa:
+  path: ~/easy-rsa
+store:
+  bucket: acme-vpn-pki
+  prefix: cvpnctl/              # optional
+  kms_key_id: alias/cvpnctl
+  link_hours: 24                # how long .ovpn links stay valid, 1–168
+aws:
+  region: eu-central-1          # the bucket must be in this region too
+  profile: default
+  vpn_endpoint_id: cvpn-endpoint-0123456789abcdef0
+```
+
+How it works:
+
+- The PKI, the state and the template are one archive, `pki.tar.gz`. A command downloads it into a private temp folder, works there, and uploads it again; the temp folder is deleted afterwards. No keys stay on disk.
+- Commands that change something take a lock. A second admin gets `locked by <user> on <host> since <time> (<command>)` and nothing changes. `cvpnctl unlock` removes a lock left behind by a crash.
+- Every change is a new S3 version: `cvpnctl store versions` lists them and `cvpnctl store restore <version>` brings one back. If that would let a revoked certificate connect again, or leave a valid certificate that the restored PKI doesn't know (and so can't revoke), restore names it and asks you to type `restore`. Restoring across a certificate's creation or revocation is never fully safe; it is meant for undoing other changes.
+- `create` and `renew` don't write a `.ovpn` file. They print a link, valid for `link_hours`, that the user opens to download it; users need no AWS access. Send the link directly, since it contains the user's private key. `cvpnctl link -u <user>` makes a new one (same certificate), and `revoke` deletes it.
+- `cvpnctl template show` and `cvpnctl template set <file>` read and replace the template.
+
+**Setting it up.** Create in your infrastructure code a bucket (versioning on, default encryption with a KMS key, all public access blocked) and a KMS key. Then move a local setup over:
+
+```
+cvpnctl store migrate --from ~/.config/cvpnctl/cvpnctl.local.yaml
+```
+
+`migrate` checks the bucket's settings and the PKI, never overwrites an existing PKI, verifies the upload file by file, and deletes nothing locally. `status` then also shows the bucket's settings, the current version, and the lock.
+
+**Additional permissions** for the admins (on top of those above):
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"],
+  "Resource": "arn:aws:s3:::acme-vpn-pki/cvpnctl/*"
+},
+{
+  "Effect": "Allow",
+  "Action": ["s3:ListBucket", "s3:ListBucketVersions", "s3:GetBucketVersioning",
+             "s3:GetEncryptionConfiguration", "s3:GetBucketPublicAccessBlock"],
+  "Resource": "arn:aws:s3:::acme-vpn-pki"
+},
+{
+  "Effect": "Allow",
+  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
+  "Resource": "<the KMS key's ARN>"
+}
+```
+
+A link is signed with the admin's credentials: it stops working early if they are deactivated, and it can be valid for at most 7 days. Temporary credentials (SSO, an assumed role) end it when they expire; cvpnctl then prints the real expiry and warns.
 
 ## Certificates and expiry
 
@@ -157,18 +217,13 @@ check itself fails. To get a monthly reminder through cron:
 | User certificate | 825 days | That user can't connect: `cvpnctl renew`. |
 | CRL | 180 days | Nobody can connect. Every `renew`, `revoke`, and `push-crl` refreshes it. |
 
-`cvpnctl status` shows all of them. For Client VPN, the server certificate
-needs a domain name: create it with
-`easyrsa --san=DNS:server build-server-full server nopass`.
+`cvpnctl status` shows all of them. For Client VPN, the server certificate needs a domain name: create it with `easyrsa --san=DNS:server build-server-full server nopass`.
 
 ## CA key
 
-Anyone with the CA's private key (`pki/private/ca.key`) can issue certificates
-your VPN accepts. Keep it on an encrypted disk, and encrypt its backups.
+Anyone with the CA's private key (`pki/private/ca.key`) can issue certificates your VPN accepts. Keep it on an encrypted disk, and encrypt its backups.
 
-You can also protect it with a passphrase (`easyrsa set-pass ca`). EasyRSA then
-asks for it on every `create`, `renew`, `revoke`, and `push-crl`, so these need
-a terminal and can't run unattended. `list` and `status` don't need it.
+You can also protect it with a passphrase (`easyrsa set-pass ca`). EasyRSA then asks for it on every `create`, `renew`, `revoke`, and `push-crl`, so these need a terminal and can't run unattended. `list` and `status` don't need it.
 
 ## Development
 

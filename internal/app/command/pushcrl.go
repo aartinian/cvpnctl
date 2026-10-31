@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -24,11 +25,14 @@ validity is 180 days).`,
 	}
 }
 
+// runPushCRL regenerates the CRL, which also renews its validity, and imports
+// it to the endpoint.
 func runPushCRL(ctx context.Context, opts *Options) error {
-	e, err := opts.load(ctx)
+	e, err := opts.load(ctx, store.Write, "push-crl")
 	if err != nil {
 		return err
 	}
+	defer e.close()
 
 	ui.Title("Pushing the CRL")
 	e.passphraseHint("regenerating the CRL", 1)
@@ -37,9 +41,15 @@ func runPushCRL(ctx context.Context, opts *Options) error {
 	}); err != nil {
 		return err
 	}
+	// Save the regenerated CRL before pushing it, so the endpoint never holds
+	// a CRL the stored PKI doesn't.
+	if err := e.save(ctx); err != nil {
+		return err
+	}
 	if err := e.pushCRL(ctx); err != nil {
 		return err
 	}
+	e.saved()
 
 	ui.Done("The endpoint has the current CRL.")
 	return nil

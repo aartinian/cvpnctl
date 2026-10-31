@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="823" height="543" viewBox="0 0 823 543" role="img" aria-label="cvpnctl create issues a certificate, imports it to ACM, saves the PKI to S3 and prints a download link; cvpnctl status shows that everything is in order">
+<style>text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:13px;fill:#e6edf3;white-space:pre}@keyframes a1{0%,1.11%{opacity:0}1.12%,96%{opacity:1}100%{opacity:0}}.a1{animation:a1 18.0s linear infinite}@keyframes a2{0%,3.33%{opacity:0}3.34%,96%{opacity:1}100%{opacity:0}}.a2{animation:a2 18.0s linear infinite}@keyframes a3{0%,3.64%{opacity:0}3.65%,96%{opacity:1}100%{opacity:0}}.a3{animation:a3 18.0s linear infinite}@keyframes a4{0%,3.94%{opacity:0}3.95%,96%{opacity:1}100%{opacity:0}}.a4{animation:a4 18.0s linear infinite}@keyframes a5{0%,4.25%{opacity:0}4.26%,96%{opacity:1}100%{opacity:0}}.a5{animation:a5 18.0s linear infinite}@keyframes a6{0%,4.56%{opacity:0}4.57%,96%{opacity:1}100%{opacity:0}}.a6{animation:a6 18.0s linear infinite}@keyframes a7{0%,4.86%{opacity:0}4.87%,96%{opacity:1}100%{opacity:0}}.a7{animation:a7 18.0s linear infinite}@keyframes a8{0%,5.17%{opacity:0}5.18%,96%{opacity:1}100%{opacity:0}}.a8{animation:a8 18.0s linear infinite}@keyframes a9{0%,5.47%{opacity:0}5.48%,96%{opacity:1}100%{opacity:0}}.a9{animation:a9 18.0s linear infinite}@keyframes a10{0%,5.78%{opacity:0}5.79%,96%{opacity:1}100%{opacity:0}}.a10{animation:a10 18.0s linear infinite}@keyframes a11{0%,6.08%{opacity:0}6.09%,96%{opacity:1}100%{opacity:0}}.a11{animation:a11 18.0s linear infinite}@keyframes a12{0%,6.39%{opacity:0}6.40%,96%{opacity:1}100%{opacity:0}}.a12{animation:a12 18.0s linear infinite}@keyframes a13{0%,6.69%{opacity:0}6.70%,96%{opacity:1}100%{opacity:0}}.a13{animation:a13 18.0s linear infinite}@keyframes a14{0%,7.00%{opacity:0}7.01%,96%{opacity:1}100%{opacity:0}}.a14{animation:a14 18.0s linear infinite}@keyframes a15{0%,7.31%{opacity:0}7.32%,96%{opacity:1}100%{opacity:0}}.a15{animation:a15 18.0s linear infinite}@keyframes a16{0%,7.61%{opacity:0}7.62%,96%{opacity:1}100%{opacity:0}}.a16{animation:a16 18.0s linear infinite}@keyframes a17{0%,7.92%{opacity:0}7.93%,96%{opacity:1}100%{opacity:0}}.a17{animation:a17 18.0s linear infinite}@keyframes a18{0%,8.22%{opacity:0}8.23%,96%{opacity:1}100%{opacity:0}}.a18{animation:a18 18.0s linear infinite}@keyframes a19{0%,8.53%{opacity:0}8.54%,96%{opacity:1}100%{opacity:0}}.a19{animation:a19 18.0s linear infinite}@keyframes a20{0%,8.83%{opacity:0}8.84%,96%{opacity:1}100%{opacity:0}}.a20{animation:a20 18.0s linear infinite}@keyframes a21{0%,9.14%{opacity:0}9.15%,96%{opacity:1}100%{opacity:0}}.a21{animation:a21 18.0s linear infinite}@keyframes a22{0%,9.44%{opacity:0}9.45%,96%{opacity:1}100%{opacity:0}}.a22{animation:a22 18.0s linear infinite}@keyframes a23{0%,37.86%{opacity:0}37.87%,96%{opacity:1}100%{opacity:0}}.a23{animation:a23 18.0s linear infinite}@keyframes a24{0%,40.08%{opacity:0}40.09%,96%{opacity:1}100%{opacity:0}}.a24{animation:a24 18.0s linear infinite}@keyframes a25{0%,40.39%{opacity:0}40.40%,96%{opacity:1}100%{opacity:0}}.a25{animation:a25 18.0s linear infinite}@keyframes a26{0%,40.69%{opacity:0}40.70%,96%{opacity:1}100%{opacity:0}}.a26{animation:a26 18.0s linear infinite}@keyframes a27{0%,41.00%{opacity:0}41.01%,96%{opacity:1}100%{opacity:0}}.a27{animation:a27 18.0s linear infinite}@keyframes a28{0%,41.31%{opacity:0}41.32%,96%{opacity:1}100%{opacity:0}}.a28{animation:a28 18.0s linear infinite}@keyframes a29{0%,41.61%{opacity:0}41.62%,96%{opacity:1}100%{opacity:0}}.a29{animation:a29 18.0s linear infinite}@keyframes a30{0%,41.92%{opacity:0}41.93%,96%{opacity:1}100%{opacity:0}}.a30{animation:a30 18.0s linear infinite}@keyframes a31{0%,42.22%{opacity:0}42.23%,96%{opacity:1}100%{opacity:0}}.a31{animation:a31 18.0s linear infinite}@keyframes a32{0%,42.53%{opacity:0}42.54%,96%{opacity:1}100%{opacity:0}}.a32{animation:a32 18.0s linear infinite}@keyframes a33{0%,42.83%{opacity:0}42.84%,96%{opacity:1}100%{opacity:0}}.a33{animation:a33 18.0s linear infinite}@keyframes a34{0%,43.14%{opacity:0}43.15%,96%{opacity:1}100%{opacity:0}}.a34{animation:a34 18.0s linear infinite}@keyframes a35{0%,43.44%{opacity:0}43.45%,96%{opacity:1}100%{opacity:0}}.a35{animation:a35 18.0s linear infinite}@keyframes a36{0%,43.75%{opacity:0}43.76%,96%{opacity:1}100%{opacity:0}}.a36{animation:a36 18.0s linear infinite}@keyframes a37{0%,44.06%{opacity:0}44.07%,96%{opacity:1}100%{opacity:0}}.a37{animation:a37 18.0s linear infinite}@keyframes a38{0%,54.53%{opacity:0}54.54%,96%{opacity:1}100%{opacity:0}}.a38{animation:a38 18.0s linear infinite}@keyframes a39{0%,12.53%{opacity:0}12.54%,96%{opacity:1}100%{opacity:0}}.a39{animation:a39 18.0s linear infinite}@keyframes a40{0%,14.86%{opacity:0}14.87%,96%{opacity:1}100%{opacity:0}}.a40{animation:a40 18.0s linear infinite}@keyframes a41{0%,17.19%{opacity:0}17.20%,96%{opacity:1}100%{opacity:0}}.a41{animation:a41 18.0s linear infinite}@keyframes a42{0%,19.53%{opacity:0}19.54%,96%{opacity:1}100%{opacity:0}}.a42{animation:a42 18.0s linear infinite}@keyframes a43{0%,21.86%{opacity:0}21.87%,96%{opacity:1}100%{opacity:0}}.a43{animation:a43 18.0s linear infinite}@keyframes a44{0%,24.19%{opacity:0}24.20%,96%{opacity:1}100%{opacity:0}}.a44{animation:a44 18.0s linear infinite}@keyframes a45{0%,26.53%{opacity:0}26.54%,96%{opacity:1}100%{opacity:0}}.a45{animation:a45 18.0s linear infinite}@keyframes a46{0%,28.86%{opacity:0}28.87%,96%{opacity:1}100%{opacity:0}}.a46{animation:a46 18.0s linear infinite}@keyframes a47{0%,47.14%{opacity:0}47.15%,96%{opacity:1}100%{opacity:0}}.a47{animation:a47 18.0s linear infinite}@keyframes a48{0%,47.75%{opacity:0}47.76%,96%{opacity:1}100%{opacity:0}}.a48{animation:a48 18.0s linear infinite}@keyframes a49{0%,48.36%{opacity:0}48.37%,96%{opacity:1}100%{opacity:0}}.a49{animation:a49 18.0s linear infinite}@keyframes a50{0%,48.97%{opacity:0}48.98%,96%{opacity:1}100%{opacity:0}}.a50{animation:a50 18.0s linear infinite}@keyframes a51{0%,49.58%{opacity:0}49.59%,96%{opacity:1}100%{opacity:0}}.a51{animation:a51 18.0s linear infinite}@keyframes a52{0%,50.19%{opacity:0}50.20%,96%{opacity:1}100%{opacity:0}}.a52{animation:a52 18.0s linear infinite}@keyframes a53{0%,50.81%{opacity:0}50.82%,96%{opacity:1}100%{opacity:0}}.a53{animation:a53 18.0s linear infinite}@keyframes a54{0%,51.42%{opacity:0}51.43%,96%{opacity:1}100%{opacity:0}}.a54{animation:a54 18.0s linear infinite}@keyframes a55{0%,52.03%{opacity:0}52.04%,96%{opacity:1}100%{opacity:0}}.a55{animation:a55 18.0s linear infinite}@keyframes a56{0%,52.64%{opacity:0}52.65%,96%{opacity:1}100%{opacity:0}}.a56{animation:a56 18.0s linear infinite}@keyframes a57{0%,53.25%{opacity:0}53.26%,96%{opacity:1}100%{opacity:0}}.a57{animation:a57 18.0s linear infinite}@keyframes a58{0%,53.86%{opacity:0}53.87%,96%{opacity:1}100%{opacity:0}}.a58{animation:a58 18.0s linear infinite}@keyframes a59{0%,54.47%{opacity:0}54.48%,96%{opacity:1}100%{opacity:0}}.a59{animation:a59 18.0s linear infinite}</style>
+<rect width="823" height="543" rx="10" fill="#0d1117"/>
+<rect width="823" height="30" rx="10" fill="#161b22"/><rect y="20" width="823" height="10" fill="#161b22"/>
+<circle cx="18" cy="15" r="6" fill="#ff5f57"/><circle cx="38" cy="15" r="6" fill="#febc2e"/><circle cx="58" cy="15" r="6" fill="#28c840"/>
+<text x="18" y="52" class="a1"><tspan fill="#3fb950">$</tspan></text>
+<text x="33.6" y="52" class="a2">c</text>
+<text x="41.4" y="52" class="a3">v</text>
+<text x="49.2" y="52" class="a4">p</text>
+<text x="57.0" y="52" class="a5">n</text>
+<text x="64.8" y="52" class="a6">c</text>
+<text x="72.6" y="52" class="a7">t</text>
+<text x="80.4" y="52" class="a8">l</text>
+<text x="88.2" y="52" class="a9"> </text>
+<text x="96.0" y="52" class="a10">c</text>
+<text x="103.8" y="52" class="a11">r</text>
+<text x="111.6" y="52" class="a12">e</text>
+<text x="119.4" y="52" class="a13">a</text>
+<text x="127.2" y="52" class="a14">t</text>
+<text x="135.0" y="52" class="a15">e</text>
+<text x="142.8" y="52" class="a16"> </text>
+<text x="150.6" y="52" class="a17">-</text>
+<text x="158.4" y="52" class="a18">u</text>
+<text x="166.2" y="52" class="a19"> </text>
+<text x="174.0" y="52" class="a20">m</text>
+<text x="181.8" y="52" class="a21">a</text>
+<text x="189.6" y="52" class="a22">x</text>
+<text x="18" y="242" class="a23"><tspan fill="#3fb950">$</tspan></text>
+<text x="33.6" y="242" class="a24">c</text>
+<text x="41.4" y="242" class="a25">v</text>
+<text x="49.2" y="242" class="a26">p</text>
+<text x="57.0" y="242" class="a27">n</text>
+<text x="64.8" y="242" class="a28">c</text>
+<text x="72.6" y="242" class="a29">t</text>
+<text x="80.4" y="242" class="a30">l</text>
+<text x="88.2" y="242" class="a31"> </text>
+<text x="96.0" y="242" class="a32">s</text>
+<text x="103.8" y="242" class="a33">t</text>
+<text x="111.6" y="242" class="a34">a</text>
+<text x="119.4" y="242" class="a35">t</text>
+<text x="127.2" y="242" class="a36">u</text>
+<text x="135.0" y="242" class="a37">s</text>
+<text x="18" y="527" class="a38"><tspan fill="#3fb950">$</tspan></text>
+<text x="18" y="71" xml:space="preserve" class="a39"><tspan fill="#ffffff" font-weight="bold">Creating max</tspan></text>
+<text x="18" y="90" xml:space="preserve" class="a40"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3"> certificate issued         expires 2029-02-01</tspan></text>
+<text x="18" y="109" xml:space="preserve" class="a41"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3"> imported to ACM            …/287fe781</tspan></text>
+<text x="18" y="128" xml:space="preserve" class="a42"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3"> .ovpn rendered</tspan></text>
+<text x="18" y="147" xml:space="preserve" class="a43"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3"> saved to S3                version 3HL4kqtx</tspan></text>
+<text x="18" y="166" xml:space="preserve" class="a44"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3"> .ovpn uploaded             link valid until 2026-11-01 09:42</tspan></text>
+<text x="18" y="185" xml:space="preserve" class="a45"><tspan fill="#e6edf3">Done. Send this link to max directly; it contains their private key:</tspan></text>
+<text x="18" y="204" xml:space="preserve" class="a46"><tspan fill="#79c0ff">https://acme-vpn-pki.s3.eu-central-1.amazonaws.com/cvpnctl/delivery/max-9f2c41…e0.ovpn?X-Amz-…</tspan></text>
+<text x="18" y="261" xml:space="preserve" class="a47"><tspan fill="#e6edf3">endpoint   cvpn-endpoint-0123456789abcdef0 (eu-central-1)</tspan></text>
+<text x="18" y="280" xml:space="preserve" class="a48"><tspan fill="#e6edf3">store      s3://acme-vpn-pki/cvpnctl/</tspan></text>
+<text x="18" y="299" xml:space="preserve" class="a49"><tspan fill="#e6edf3"></tspan></text>
+<text x="18" y="318" xml:space="preserve" class="a50"><tspan fill="#8b949e">     WHAT            NAME              EXPIRES     LEFT      </tspan></text>
+<text x="18" y="337" xml:space="preserve" class="a51"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3">  bucket          acme-vpn-pki                             versioning, KMS, public access blocked</tspan></text>
+<text x="18" y="356" xml:space="preserve" class="a52"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3">  store           version 3HL4kqtx                         written 2026-10-31 09:42 by …:user/ari</tspan></text>
+<text x="18" y="375" xml:space="preserve" class="a53"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3">  CA              Acme VPN CA       2035-06-02  3136 days  </tspan></text>
+<text x="18" y="394" xml:space="preserve" class="a54"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3">  server cert     server            2028-03-14  500 days   </tspan></text>
+<text x="18" y="413" xml:space="preserve" class="a55"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3">  CRL (endpoint)                    2027-04-29  179 days   matches your PKI</tspan></text>
+<text x="18" y="432" xml:space="preserve" class="a56"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3">  user            max               2029-02-01  824 days   </tspan></text>
+<text x="18" y="451" xml:space="preserve" class="a57"><tspan fill="#e6edf3">  </tspan><tspan fill="#3fb950">✓</tspan><tspan fill="#e6edf3">  user            bob               2028-11-20  751 days   </tspan></text>
+<text x="18" y="470" xml:space="preserve" class="a58"><tspan fill="#e6edf3"></tspan></text>
+<text x="18" y="489" xml:space="preserve" class="a59"><tspan fill="#e6edf3">All good.</tspan></text>
+</svg>

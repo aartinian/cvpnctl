@@ -28,8 +28,8 @@ func setup(t *testing.T, template string) (*Generator, easyrsa.Files, string) {
 	}
 	files := easyrsa.Files{
 		// EasyRSA puts a text dump in front of the PEM block in issued certs.
-		Cert: write("alice.crt", "Certificate:\n    Data: ...\n"+pemCert),
-		Key:  write("alice.key", pemKey),
+		Cert: write("max.crt", "Certificate:\n    Data: ...\n"+pemCert),
+		Key:  write("max.key", pemKey),
 		CA:   write("ca.crt", pemCA),
 	}
 	out := filepath.Join(dir, "clients")
@@ -40,12 +40,12 @@ func setup(t *testing.T, template string) (*Generator, easyrsa.Files, string) {
 func TestGenerate(t *testing.T) {
 	gen, files, _ := setup(t, "client\n# {{.User}}\n{{.CA}}\n{{.Cert}}\n{{.Key}}\n")
 
-	path, err := gen.Generate("alice", files)
+	path, err := gen.Generate("max", files)
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
 	got, _ := os.ReadFile(path)
-	want := "client\n# alice\n" +
+	want := "client\n# max\n" +
 		"<ca>\n" + pemCA + "</ca>\n" +
 		"<cert>\n" + pemCert + "</cert>\n" +
 		"<key>\n" + pemKey + "</key>\n"
@@ -64,14 +64,14 @@ func TestGenerateTightensExistingFileMode(t *testing.T) {
 	if err := os.MkdirAll(out, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(gen.Path("alice"), []byte("old"), 0o644); err != nil {
+	if err := os.WriteFile(gen.Path("max"), []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := gen.Generate("alice", files); err != nil {
+	if _, err := gen.Generate("max", files); err != nil {
 		t.Fatal(err)
 	}
-	fi, _ := os.Stat(gen.Path("alice"))
+	fi, _ := os.Stat(gen.Path("max"))
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode after overwrite = %o, want 600", fi.Mode().Perm())
 	}
@@ -79,7 +79,7 @@ func TestGenerateTightensExistingFileMode(t *testing.T) {
 
 func TestGenerateUnknownField(t *testing.T) {
 	gen, files, _ := setup(t, "{{.Nope}}")
-	if _, err := gen.Generate("alice", files); err == nil || !strings.Contains(err.Error(), "Nope") {
+	if _, err := gen.Generate("max", files); err == nil || !strings.Contains(err.Error(), "Nope") {
 		t.Errorf("err = %v, want an error naming the unknown field", err)
 	}
 }

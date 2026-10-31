@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aartinian/cvpnctl/internal/easyrsa"
+	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -52,21 +52,33 @@ type row struct {
 	note       string
 }
 
+// runStatus prints one table of everything that can expire or drift: the
+// store (S3 mode), the CA, the endpoint's certificates, both CRLs and every
+// user. It returns ErrNeedsAttention if any row is not ✓. now is a parameter
+// so tests can look into the future.
 func runStatus(ctx context.Context, opts *Options, now time.Time) error {
-	e, err := opts.load(ctx)
+	e, err := opts.load(ctx, store.Read, "status")
 	if err != nil {
 		return err
 	}
+	defer e.close()
 
-	version, err := e.pki.Version()
-	if err != nil {
-		return err
-	}
 	fmt.Printf("config     %s\n", ui.Path(e.cfg.Path))
-	fmt.Printf("easyrsa    %s (%s)\n", version, ui.Path(e.pki.Dir()))
-	fmt.Printf("endpoint   %s (%s)\n\n", e.cfg.AWS.VPNEndpointID, e.cfg.AWS.Region)
+	fmt.Printf("easyrsa    %s (%s)\n", e.easyrsaVersion, ui.Path(e.pki.Dir()))
+	fmt.Printf("endpoint   %s (%s)\n", e.cfg.AWS.VPNEndpointID, e.cfg.AWS.Region)
+	if e.ws.Remote() {
+		fmt.Printf("store      s3://%s/%s\n", e.cfg.Store.Bucket, e.cfg.Store.Prefix)
+	}
+	fmt.Println()
 
 	var rows []row
+	if e.ws.Remote() {
+		storeRows, err := e.storeRows(ctx, now)
+		if err != nil {
+			return err
+		}
+		rows = append(rows, storeRows...)
+	}
 
 	ca, err := e.pki.CACert()
 	if err != nil {
@@ -96,11 +108,11 @@ func runStatus(ctx context.Context, opts *Options, now time.Time) error {
 	switch n, next, err := e.pki.CRLInfo(); {
 	case errors.Is(err, fs.ErrNotExist):
 		// A fresh PKI has no CRL until the first revocation or push-crl.
-		rows = append(rows, row{what: "CRL (local)", note: "none yet"})
+		rows = append(rows, row{what: "CRL (PKI)", note: "none yet"})
 	case err != nil:
 		return err
 	default:
-		local := expiryRow("CRL (local)", "", next, now)
+		local := expiryRow("CRL (PKI)", "", next, now)
 		if local.note == "" {
 			local.note = fmt.Sprintf("%d revoked", n)
 		}
@@ -163,11 +175,7 @@ func (e *env) endpointCRLRow(ctx context.Context, ca *x509.Certificate, now time
 			note: fmt.Sprintf("none: %d revoked %s can still connect; run cvpnctl push-crl", len(revoked), plural(len(revoked), "certificate", "certificates"))}, nil
 	}
 
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return row{what: "CRL (endpoint)", level: ui.Critical, note: "unreadable"}, nil
-	}
-	crl, err := x509.ParseRevocationList(block.Bytes)
+	crl, err := easyrsa.ParseCRL(data)
 	if err != nil {
 		return row{what: "CRL (endpoint)", level: ui.Critical, note: "unreadable"}, nil
 	}
@@ -184,10 +192,7 @@ func (e *env) endpointCRLRow(ctx context.Context, ca *x509.Certificate, now time
 		return r, nil
 	}
 
-	onEndpoint := make(map[string]bool)
-	for _, entry := range crl.RevokedCertificateEntries {
-		onEndpoint[easyrsa.NormSerial(entry.SerialNumber.Text(16))] = true
-	}
+	onEndpoint := easyrsa.CRLSerials(crl)
 	var extra, missing int
 	for s := range onEndpoint {
 		if !revoked[s] {
@@ -260,4 +265,47 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// storeRows describes the shared store: whether the bucket is set up as the
+// shared PKI needs, the current archive version, and the lock, if held.
+func (e *env) storeRows(ctx context.Context, now time.Time) ([]row, error) {
+	sc := *e.cfg.Store
+	var rows []row
+
+	problems, err := store.CheckBucket(ctx, e.s3, sc)
+	if err != nil {
+		return nil, err
+	}
+	bucket := row{what: "bucket", name: sc.Bucket, note: "versioning, KMS, public access blocked"}
+	if len(problems) > 0 {
+		var notes []string
+		for _, p := range problems {
+			notes = append(notes, p.What+" "+p.Detail)
+		}
+		bucket.level, bucket.note = ui.Critical, strings.Join(notes, "; ")
+	}
+	rows = append(rows, bucket)
+
+	if v, ok, err := store.Current(ctx, e.s3, sc); err != nil {
+		return nil, err
+	} else if ok {
+		rows = append(rows, row{what: "store", name: "version " + shortVersion(v.ID),
+			note: fmt.Sprintf("written %s by %s", v.Modified.Local().Format("2006-01-02 15:04"), orDash(v.Writer))})
+	}
+
+	info, held, err := store.ReadLock(ctx, e.s3, sc)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		lock := row{what: "lock", name: info.Host,
+			note: fmt.Sprintf("held by %s for '%s', taken %s ago", info.ARN, info.Command, age(now.Sub(info.Started)))}
+		if now.Sub(info.Started) > time.Hour {
+			lock.level = ui.Attention
+			lock.note += "; if that command crashed: cvpnctl unlock"
+		}
+		rows = append(rows, lock)
+	}
+	return rows, nil
 }
