@@ -119,7 +119,7 @@ func TestCAEncrypted(t *testing.T) {
 
 func TestRevokedSerials(t *testing.T) {
 	dir := t.TempDir()
-	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=alice\n" +
+	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=max\n" +
 		"R\t270420223927Z\t261013150000Z\t0cd34\tunknown\t/CN=bob\n" +
 		"R\t250120210018Z\t261013150000Z\tEF56\tunknown\t/CN=carol\n"
 	if err := os.WriteFile(filepath.Join(dir, "index.txt"), []byte(index), 0o600); err != nil {
@@ -136,7 +136,7 @@ func TestRevokedSerials(t *testing.T) {
 
 func TestIndex(t *testing.T) {
 	dir := t.TempDir()
-	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=alice\n" +
+	index := "V\t290115152257Z\t\t0AB12\tunknown\t/CN=max\n" +
 		"R\t270420223927Z\t261013150000Z\t0cd34\tunknown\t/CN=bob\n" +
 		"R\t250120210018Z\t261013150000Z,keyCompromise\tEF56\tunknown\t/C=CH/CN=carol/O=x\n"
 	if err := os.WriteFile(filepath.Join(dir, "index.txt"), []byte(index), 0o600); err != nil {
@@ -146,7 +146,7 @@ func TestIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []IndexEntry{{"V", "AB12", "alice"}, {"R", "CD34", "bob"}, {"R", "EF56", "carol"}}
+	want := []IndexEntry{{"V", "AB12", "max"}, {"R", "CD34", "bob"}, {"R", "EF56", "carol"}}
 	if len(got) != len(want) {
 		t.Fatalf("Index() = %+v", got)
 	}

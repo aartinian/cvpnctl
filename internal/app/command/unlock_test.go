@@ -39,7 +39,7 @@ func TestUnlock(t *testing.T) {
 	if _, held, _ := store.ReadLock(context.Background(), h.s3, storeCfg); held {
 		t.Error("lock still held after unlock")
 	}
-	h.must(h.create("alice")) // the store is usable again
+	h.must(h.create("max")) // the store is usable again
 }
 
 func TestUnlockAsksFirst(t *testing.T) {
@@ -70,7 +70,7 @@ func TestUnlockLocalMode(t *testing.T) {
 
 func TestStatusS3Rows(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	out, err := h.status()
 	wantStatus(t, out, err, false, "s3://b/cvpnctl/", "bucket", "versioning, KMS, public access blocked", "store", testCaller)
 	if regexp.MustCompile(`(?m)^\s+\S+\s+lock\s`).MatchString(out) {
@@ -106,7 +106,7 @@ func TestStatusShowsOldLock(t *testing.T) {
 // which would let bob back in.
 func TestStaleCommandDoesNotPushCRL(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	h.must(h.create("bob"))
 	pushes := 0
 	h.cloud.onPush = func(map[string]bool) { pushes++ }
@@ -126,7 +126,7 @@ func TestStaleCommandDoesNotPushCRL(t *testing.T) {
 		h.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String(key), Body: bytes.NewReader([]byte("nils revoked bob"))})
 	}
 
-	err := h.revoke("alice")
+	err := h.revoke("max")
 	if err == nil || !strings.Contains(err.Error(), "not pushed") || !strings.Contains(err.Error(), "push-crl") {
 		t.Fatalf("err = %v, want a refused push that says to run push-crl", err)
 	}

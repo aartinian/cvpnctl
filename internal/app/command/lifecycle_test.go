@@ -287,14 +287,14 @@ func readCert(path string) (*x509.Certificate, error) {
 
 func TestLifecycle(t *testing.T) {
 	h := newHarness(t)
-	ovpnPath := filepath.Join(h.clientsDir(), "alice.ovpn")
-	userDir := filepath.Join(h.certsDir(), "alice")
+	ovpnPath := filepath.Join(h.clientsDir(), "max.ovpn")
+	userDir := filepath.Join(h.certsDir(), "max")
 
 	// create
-	h.must(h.create("alice"))
-	first := h.serial("alice")
+	h.must(h.create("max"))
+	first := h.serial("max")
 
-	if r, ok := h.record("alice"); !ok || r.ProviderID != "cert-1" {
+	if r, ok := h.record("max"); !ok || r.ProviderID != "cert-1" {
 		t.Fatalf("state after create = %+v, %v", r, ok)
 	}
 	if h.cloud.certs["cert-1"] != first {
@@ -304,7 +304,7 @@ func TestLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# alice", "<cert>\n-----BEGIN CERTIFICATE-----", "BEGIN PRIVATE KEY"} {
+	for _, want := range []string{"# max", "<cert>\n-----BEGIN CERTIFICATE-----", "BEGIN PRIVATE KEY"} {
 		if !strings.Contains(string(conf), want) {
 			t.Errorf(".ovpn missing %q", want)
 		}
@@ -312,24 +312,24 @@ func TestLifecycle(t *testing.T) {
 	if strings.Contains(string(conf), "Certificate:") {
 		t.Error(".ovpn contains EasyRSA's text dump; only the PEM block belongs there")
 	}
-	for _, p := range []string{ovpnPath, filepath.Join(userDir, "alice.key")} {
+	for _, p := range []string{ovpnPath, filepath.Join(userDir, "max.key")} {
 		if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != 0o600 {
 			t.Errorf("%s: mode not 0600 (%v)", p, err)
 		}
 	}
 
-	if err := h.create("alice"); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := h.create("max"); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("second create: err = %v, want 'already exists'", err)
 	}
 
 	// renew
-	h.must(h.renew("alice"))
-	second := h.serial("alice")
+	h.must(h.renew("max"))
+	second := h.serial("max")
 
 	if second == first {
 		t.Fatal("renew did not issue a new certificate")
 	}
-	if r, _ := h.record("alice"); r.ProviderID != "cert-2" {
+	if r, _ := h.record("max"); r.ProviderID != "cert-2" {
 		t.Errorf("state after renew points at %s, want cert-2", r.ProviderID)
 	}
 	if len(h.cloud.certs) != 1 || h.cloud.certs["cert-2"] != second {
@@ -338,12 +338,12 @@ func TestLifecycle(t *testing.T) {
 	if !h.cloud.revoked[first] || h.cloud.revoked[second] {
 		t.Errorf("CRL after renew = %v, want old serial %s revoked and new %s not", h.cloud.revoked, first, second)
 	}
-	if copied, err := readCert(filepath.Join(userDir, "alice.crt")); err != nil || copied.SerialNumber.Text(16) != second {
+	if copied, err := readCert(filepath.Join(userDir, "max.crt")); err != nil || copied.SerialNumber.Text(16) != second {
 		t.Errorf("per-user copy is not the new certificate (%v)", err)
 	}
 
 	// revoke
-	h.must(h.revoke("alice"))
+	h.must(h.revoke("max"))
 
 	if len(h.cloud.certs) != 0 {
 		t.Errorf("provider after revoke still holds %v", h.cloud.certs)
@@ -351,15 +351,15 @@ func TestLifecycle(t *testing.T) {
 	if !h.cloud.revoked[second] {
 		t.Errorf("CRL after revoke does not list %s", second)
 	}
-	if _, ok := h.record("alice"); ok {
-		t.Error("alice still in state after revoke")
+	if _, ok := h.record("max"); ok {
+		t.Error("max still in state after revoke")
 	}
 	if h.exists(userDir) || h.exists(ovpnPath) {
 		t.Error("revoke left the per-user directory or .ovpn behind")
 	}
 
 	// The name is free again.
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 }
 
 func TestCreateRollsBackWhenImportFails(t *testing.T) {

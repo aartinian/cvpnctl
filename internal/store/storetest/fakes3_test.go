@@ -135,7 +135,7 @@ func TestConflictNextPuts(t *testing.T) {
 
 func TestListAndEvents(t *testing.T) {
 	f := storetest.New()
-	put(f, "delivery/alice-1.ovpn", "a", nil)
+	put(f, "delivery/max-1.ovpn", "a", nil)
 	put(f, "delivery/bob-1.ovpn", "b", nil)
 	put(f, "pki.tar.gz", "p", nil)
 	out, _ := f.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("b"), Prefix: aws.String("delivery/")})

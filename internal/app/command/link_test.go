@@ -82,11 +82,11 @@ func (h *harness) links() []string {
 	return ks
 }
 
-var linkURL = regexp.MustCompile(`https://example\.test/cvpnctl/delivery/alice-[0-9a-f]{32}\.ovpn`)
+var linkURL = regexp.MustCompile(`https://example\.test/cvpnctl/delivery/max-[0-9a-f]{32}\.ovpn`)
 
 func TestCreatePrintsLink(t *testing.T) {
 	h := newHarnessS3(t)
-	out, err := captureStdout(t, func() error { return h.create("alice") })
+	out, err := captureStdout(t, func() error { return h.create("max") })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +98,8 @@ func TestCreatePrintsLink(t *testing.T) {
 		t.Fatalf("links = %v, want one", ls)
 	}
 	body, _ := h.s3.Object(ls[0])
-	if !strings.Contains(string(body), "# alice") || !strings.Contains(string(body), "BEGIN PRIVATE KEY") {
-		t.Errorf("published .ovpn is not alice's:\n%s", body)
+	if !strings.Contains(string(body), "# max") || !strings.Contains(string(body), "BEGIN PRIVATE KEY") {
+		t.Errorf("published .ovpn is not max's:\n%s", body)
 	}
 	if h.presign.expires != 24*time.Hour {
 		t.Errorf("link valid for %v, want the configured 24h", h.presign.expires)
@@ -111,9 +111,9 @@ func TestCreatePrintsLink(t *testing.T) {
 
 func TestRenewReplacesLink(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	before := h.links()
-	h.must(h.renew("alice"))
+	h.must(h.renew("max"))
 	after := h.links()
 	if len(after) != 1 || after[0] == before[0] {
 		t.Errorf("links before %v, after %v: want one new link", before, after)
@@ -122,8 +122,8 @@ func TestRenewReplacesLink(t *testing.T) {
 
 func TestRevokeDeletesLink(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
-	h.must(h.revoke("alice"))
+	h.must(h.create("max"))
+	h.must(h.revoke("max"))
 	if ls := h.links(); len(ls) != 0 {
 		t.Errorf("links after revoke: %v", ls)
 	}
@@ -131,10 +131,10 @@ func TestRevokeDeletesLink(t *testing.T) {
 
 func TestLinkReissues(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
-	serial, before := h.serial("alice"), h.links()
+	h.must(h.create("max"))
+	serial, before := h.serial("max"), h.links()
 
-	out, err := captureStdout(t, func() error { return runLink(context.Background(), h.opts, "alice", 48) })
+	out, err := captureStdout(t, func() error { return runLink(context.Background(), h.opts, "max", 48) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestLinkReissues(t *testing.T) {
 	if after := h.links(); len(after) != 1 || after[0] == before[0] {
 		t.Errorf("links before %v, after %v: want one new link", before, after)
 	}
-	if h.serial("alice") != serial || len(h.cloud.certs) != 1 {
+	if h.serial("max") != serial || len(h.cloud.certs) != 1 {
 		t.Error("link changed the certificate; it must only re-issue the link")
 	}
 	if h.presign.expires != 48*time.Hour {
@@ -169,12 +169,12 @@ func TestLinkUnknownUser(t *testing.T) {
 
 func TestLinkMissingCertificate(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	before := h.links()
 
-	// Remove alice's certificate from the stored PKI behind cvpnctl's back.
+	// Remove max's certificate from the stored PKI behind cvpnctl's back.
 	dir := h.storedCopy()
-	if err := os.Remove(filepath.Join(dir, "pki", "issued", "alice.crt")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "pki", "issued", "max.crt")); err != nil {
 		t.Fatal(err)
 	}
 	data, err := store.Pack(dir)
@@ -183,7 +183,7 @@ func TestLinkMissingCertificate(t *testing.T) {
 	}
 	h.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader(data)})
 
-	err = runLink(context.Background(), h.opts, "alice", 0)
+	err = runLink(context.Background(), h.opts, "max", 0)
 	if err == nil || !strings.Contains(err.Error(), "no certificate") {
 		t.Errorf("err = %v, want a missing-certificate error", err)
 	}
@@ -194,7 +194,7 @@ func TestLinkMissingCertificate(t *testing.T) {
 
 func TestLinkLocalMode(t *testing.T) {
 	h := newHarness(t)
-	err := runLink(context.Background(), h.opts, "alice", 0)
+	err := runLink(context.Background(), h.opts, "max", 0)
 	if err == nil || !strings.Contains(err.Error(), "requires `store` in the config") {
 		t.Errorf("err = %v", err)
 	}
@@ -203,7 +203,7 @@ func TestLinkLocalMode(t *testing.T) {
 func TestLinkHoursRange(t *testing.T) {
 	h := newHarnessS3(t)
 	for _, hours := range []int{169, -1} {
-		if err := runCreate(context.Background(), h.opts, "alice", hours); err == nil || !strings.Contains(err.Error(), "link_hours must be 1–168") {
+		if err := runCreate(context.Background(), h.opts, "max", hours); err == nil || !strings.Contains(err.Error(), "link_hours must be 1–168") {
 			t.Errorf("--link-hours %d: err = %v", hours, err)
 		}
 	}
@@ -211,7 +211,7 @@ func TestLinkHoursRange(t *testing.T) {
 		t.Error("an invalid --link-hours still created a certificate")
 	}
 	local := newHarness(t)
-	if err := runCreate(context.Background(), local.opts, "alice", 12); err == nil || !strings.Contains(err.Error(), "requires `store`") {
+	if err := runCreate(context.Background(), local.opts, "max", 12); err == nil || !strings.Contains(err.Error(), "requires `store`") {
 		t.Errorf("--link-hours in local mode: err = %v", err)
 	}
 }
@@ -220,10 +220,10 @@ func TestLinkHoursRange(t *testing.T) {
 // publish the revoked certificate over the new link.
 func TestLinkTakesLock(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	h.holdLock(time.Minute)
 	var locked *store.LockedError
-	if err := runLink(context.Background(), h.opts, "alice", 0); !errors.As(err, &locked) {
+	if err := runLink(context.Background(), h.opts, "max", 0); !errors.As(err, &locked) {
 		t.Fatalf("link while the lock is held: err = %v, want *LockedError", err)
 	}
 }
@@ -232,11 +232,11 @@ func TestLinkTakesLock(t *testing.T) {
 // ending then, with a warning, instead of the 24 hours asked for.
 func TestLinkWarnsWhenCredentialsExpireFirst(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	h.presign.credsUntil = time.Now().Add(2 * time.Hour)
 
 	errOut, err := captureStderr(t, func() error {
-		_, err := captureStdout(t, func() error { return runLink(context.Background(), h.opts, "alice", 24) })
+		_, err := captureStdout(t, func() error { return runLink(context.Background(), h.opts, "max", 24) })
 		return err
 	})
 	if err != nil {
@@ -251,7 +251,7 @@ func TestLinkWarnsWhenCredentialsExpireFirst(t *testing.T) {
 // not publish, since the other admin may have renewed the user meanwhile.
 func TestLinkStaleLockDoesNotPublish(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	before := h.links()
 	fired := false
 	h.s3.AfterPut = func(key string) {
@@ -267,7 +267,7 @@ func TestLinkStaleLockDoesNotPublish(t *testing.T) {
 		}
 	}
 
-	_, err := captureStdout(t, func() error { return runLink(context.Background(), h.opts, "alice", 0) })
+	_, err := captureStdout(t, func() error { return runLink(context.Background(), h.opts, "max", 0) })
 	if err == nil || !strings.Contains(err.Error(), "not published") {
 		t.Fatalf("err = %v, want a refused publish", err)
 	}

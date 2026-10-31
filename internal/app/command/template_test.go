@@ -40,10 +40,10 @@ func TestTemplateSet(t *testing.T) {
 		t.Errorf("stored template = %q", got)
 	}
 
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	body, _ := h.s3.Object(h.links()[0])
-	if !strings.Contains(string(body), "remote vpn.example 443") || !strings.Contains(string(body), "# for alice") {
-		t.Errorf("alice's .ovpn doesn't use the new template:\n%s", body)
+	if !strings.Contains(string(body), "remote vpn.example 443") || !strings.Contains(string(body), "# for max") {
+		t.Errorf("max's .ovpn doesn't use the new template:\n%s", body)
 	}
 }
 

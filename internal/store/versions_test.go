@@ -78,7 +78,7 @@ func TestOpenDeleted(t *testing.T) {
 	cfg, f := s3Env(t)
 	f.DeleteObject(context.Background(), &s3.DeleteObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz")})
 
-	if _, err := Open(context.Background(), cfg, Write, deps(f, "create alice")); !errors.Is(err, ErrStoreDeleted) {
+	if _, err := Open(context.Background(), cfg, Write, deps(f, "create max")); !errors.Is(err, ErrStoreDeleted) {
 		t.Fatalf("Write: err = %v, want ErrStoreDeleted", err)
 	}
 	open := func() Workspace {
@@ -139,7 +139,7 @@ func TestOpenIncomplete(t *testing.T) {
 			}
 			f.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader(data)})
 
-			if _, err := Open(context.Background(), cfg, Write, deps(f, "create alice")); err == nil || !strings.Contains(err.Error(), "store restore") {
+			if _, err := Open(context.Background(), cfg, Write, deps(f, "create max")); err == nil || !strings.Contains(err.Error(), "store restore") {
 				t.Errorf("Write: err = %v, want a hint to restore", err)
 			}
 			ws, err := Open(context.Background(), cfg, Recover, deps(f, "store restore"))

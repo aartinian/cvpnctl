@@ -32,7 +32,7 @@ func restore(h *harness, version string, yes bool) (string, error) {
 
 func TestVersionsLists(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	current := h.version()
 	out, err := captureStdout(t, func() error { return runVersions(context.Background(), h.opts, "") })
 	if err != nil {
@@ -58,13 +58,13 @@ func TestVersionsWithoutS3(t *testing.T) {
 
 func TestVersionsDetails(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	h.must(h.create("bob"))
 	out, err := captureStdout(t, func() error { return runVersions(context.Background(), h.opts, h.version()) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"alice", "bob", "0 revoked"} {
+	for _, want := range []string{"max", "bob", "0 revoked"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("details lack %q:\n%s", want, out)
 		}
@@ -75,7 +75,7 @@ func TestRestoreRoundTrip(t *testing.T) {
 	// A restore that doesn't cross the issuing of a certificate is safe and
 	// needs no typed confirmation: here, undoing a template change.
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	if err := runTemplateSet(context.Background(), h.opts, writeTemplate(t, "client\n# first {{.User}}\n{{.CA}}\n{{.Cert}}\n{{.Key}}\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -92,8 +92,8 @@ func TestRestoreRoundTrip(t *testing.T) {
 	if tmpl, _ := os.ReadFile(filepath.Join(h.storedCopy(), "template", "base.ovpn")); !strings.Contains(string(tmpl), "# first") {
 		t.Errorf("the template wasn't restored: %q", tmpl)
 	}
-	if _, ok := h.record("alice"); !ok {
-		t.Error("alice is missing from the stored state")
+	if _, ok := h.record("max"); !ok {
+		t.Error("max is missing from the stored state")
 	}
 	if h.version() == first {
 		t.Error("restore didn't write a new version on top")
@@ -110,9 +110,9 @@ func TestRestoreRoundTrip(t *testing.T) {
 // again after the next push. --yes isn't enough for that.
 func TestRestoreUnrevokeGuard(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	before := h.version()
-	h.must(h.revoke("alice")) // revoked and pushed
+	h.must(h.revoke("max")) // revoked and pushed
 	archive, _ := h.s3.Object("cvpnctl/pki.tar.gz")
 
 	_, err := restore(h, before, true)
@@ -125,8 +125,8 @@ func TestRestoreUnrevokeGuard(t *testing.T) {
 	if err == nil || (!strings.Contains(err.Error(), "not a terminal") && !strings.Contains(err.Error(), "aborted")) {
 		t.Fatalf("without --yes: err = %v", err)
 	}
-	if !strings.Contains(out, "alice") || !strings.Contains(out, "connect again") {
-		t.Errorf("the warning doesn't name alice:\n%s", out)
+	if !strings.Contains(out, "max") || !strings.Contains(out, "connect again") {
+		t.Errorf("the warning doesn't name max:\n%s", out)
 	}
 	if got, _ := h.s3.Object("cvpnctl/pki.tar.gz"); !bytes.Equal(got, archive) {
 		t.Error("the archive changed although the restore was refused")
@@ -159,7 +159,7 @@ func TestRestoreLocalMode(t *testing.T) {
 // a lost revocation.
 func TestRestoreUnknownCertGuard(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	before := h.version()
 	h.must(h.create("judy"))
 	archive, _ := h.s3.Object("cvpnctl/pki.tar.gz")
@@ -179,12 +179,12 @@ func TestRestoreUnknownCertGuard(t *testing.T) {
 // Restoring a version where a certificate is just as valid as now is fine.
 func TestRestoreKeepsKnownCerts(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
-	withAlice := h.version()
+	h.must(h.create("max"))
+	withMax := h.version()
 	if err := runTemplateSet(context.Background(), h.opts, writeTemplate(t, "client\n{{.CA}}\n{{.Cert}}\n{{.Key}}\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := restore(h, withAlice, true); err != nil {
+	if _, err := restore(h, withMax, true); err != nil {
 		t.Fatalf("restoring a version with the same certificates: %v", err)
 	}
 }
@@ -214,9 +214,9 @@ func TestReplaceWorkspaceRequiresPKI(t *testing.T) {
 // because it can only compare the endpoint's CRL.
 func TestRestoreDamagedCurrent(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	good := h.version()
-	h.must(h.revoke("alice")) // revoked and pushed: the endpoint knows
+	h.must(h.revoke("max")) // revoked and pushed: the endpoint knows
 	h.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader([]byte("garbage"))})
 
 	if err := h.create("bob"); err == nil || !strings.Contains(err.Error(), "store restore") {
@@ -229,7 +229,7 @@ func TestRestoreDamagedCurrent(t *testing.T) {
 	if err == nil || (!strings.Contains(err.Error(), "not a terminal") && !strings.Contains(err.Error(), "aborted")) {
 		t.Fatalf("without --yes: err = %v", err)
 	}
-	for _, want := range []string{"current version is unusable", "alice", "connect again"} {
+	for _, want := range []string{"current version is unusable", "max", "connect again"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -246,7 +246,7 @@ func TestRestoreDamagedCurrent(t *testing.T) {
 // takes the good version and replaces exactly the damaged one.
 func TestRecoverWorkspaceReplacesDamaged(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	good := h.version()
 	h.s3.PutObject(context.Background(), &s3.PutObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz"), Body: bytes.NewReader([]byte("garbage"))})
 
@@ -273,8 +273,8 @@ func TestRecoverWorkspaceReplacesDamaged(t *testing.T) {
 	if err := ws.Checkpoint(context.Background()); err != nil {
 		t.Fatalf("Checkpoint: %v", err)
 	}
-	if !h.exists(filepath.Join(h.storedCopy(), "pki", "issued", "alice.crt")) {
-		t.Error("the restored archive lacks alice")
+	if !h.exists(filepath.Join(h.storedCopy(), "pki", "issued", "max.crt")) {
+		t.Error("the restored archive lacks max")
 	}
 }
 
@@ -300,7 +300,7 @@ func TestRestoreLockNamesCaller(t *testing.T) {
 // that it can only compare the endpoint's CRL.
 func TestRestoreDeletedCurrent(t *testing.T) {
 	h := newHarnessS3(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	good := h.version()
 	h.s3.DeleteObject(context.Background(), &s3.DeleteObjectInput{Bucket: aws.String("b"), Key: aws.String("cvpnctl/pki.tar.gz")})
 

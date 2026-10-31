@@ -20,14 +20,14 @@ func capture(t *testing.T, color bool) (out, errOut *bytes.Buffer) {
 
 func TestPlainOutput(t *testing.T) {
 	out, errOut := capture(t, false)
-	Title("Creating %s", "alice")
+	Title("Creating %s", "max")
 	OK("certificate issued", "expires 2029-01-15")
 	OK("CRL regenerated", "")
 	Fail("importing to ACM")
 	Warn("careful %d", 1)
 	Done("Send it.")
 
-	wantOut := "Creating alice\n" +
+	wantOut := "Creating max\n" +
 		"  ✓ certificate issued         expires 2029-01-15\n" +
 		"  ✓ CRL regenerated\n" +
 		"Done. Send it.\n"

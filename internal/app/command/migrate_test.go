@@ -22,7 +22,7 @@ func localThenS3(t *testing.T) (*harness, string) {
 	t.Helper()
 	t.Setenv("TMPDIR", t.TempDir())
 	h := newHarness(t)
-	h.must(h.create("alice"))
+	h.must(h.create("max"))
 	h.must(h.create("bob"))
 	h.must(h.revoke("bob"))
 	local := h.opts.ConfigFile
@@ -37,7 +37,7 @@ func migrate(h *harness, from string) (string, error) {
 func TestMigrate(t *testing.T) {
 	h, local := localThenS3(t)
 	localSerial := func() string {
-		c, err := readCert(filepath.Join(h.pki, "issued", "alice.crt"))
+		c, err := readCert(filepath.Join(h.pki, "issued", "max.crt"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,11 +55,11 @@ func TestMigrate(t *testing.T) {
 	}
 
 	// Everything came across: the certificate, the state, the revocation and the template.
-	if got := h.serial("alice"); got != localSerial {
-		t.Errorf("stored alice serial %s, local %s", got, localSerial)
+	if got := h.serial("max"); got != localSerial {
+		t.Errorf("stored max serial %s, local %s", got, localSerial)
 	}
-	if r, ok := h.record("alice"); !ok || r.ProviderID == "" {
-		t.Errorf("stored state lacks alice: %+v", r)
+	if r, ok := h.record("max"); !ok || r.ProviderID == "" {
+		t.Errorf("stored state lacks max: %+v", r)
 	}
 	if _, ok := h.record("bob"); ok {
 		t.Error("revoked bob came back in the stored state")
@@ -69,8 +69,8 @@ func TestMigrate(t *testing.T) {
 	}
 
 	// S3 mode works on the migrated PKI.
-	h.must(h.renew("alice"))
-	if h.serial("alice") == localSerial {
+	h.must(h.renew("max"))
+	if h.serial("max") == localSerial {
 		t.Error("renew after migrate didn't issue a new certificate")
 	}
 	if _, held, _ := store.ReadLock(context.Background(), h.s3, storeCfg); held {
