@@ -81,6 +81,43 @@ func (o *Options) load(ctx context.Context, mode store.Mode, command string) (*e
 	return o.loadWith(ctx, cfg, mode, command)
 }
 
+// loadIssuing is load for create and renew. In S3 mode they end by publishing
+// a link, so --link-hours is resolved here, before the lock is taken.
+func (o *Options) loadIssuing(ctx context.Context, command string, hoursFlag int) (*env, int, error) {
+	cfg, err := o.loadConfig()
+	if err != nil {
+		return nil, 0, err
+	}
+	hours, err := linkHours(cfg, hoursFlag)
+	if err != nil {
+		return nil, 0, err
+	}
+	e, err := o.loadWith(ctx, cfg, store.Write, command)
+	return e, hours, err
+}
+
+// loadS3Config loads the config of a command that only exists in S3 mode, and
+// fails with hint appended if the config has no store.
+func (o *Options) loadS3Config(command, hint string) (*config.Config, error) {
+	cfg, err := o.loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.S3Mode() {
+		return nil, fmt.Errorf("%s requires `store` in the config%s", command, hint)
+	}
+	return cfg, nil
+}
+
+// s3 returns the store's S3 client and the lookup of the caller's IAM ARN.
+// NewS3 is nil only in test setups that run in local mode.
+func (o *Options) s3(ctx context.Context, cfg *config.Config) (store.S3API, func(context.Context) (string, error), error) {
+	if o.NewS3 == nil {
+		return nil, nil, errors.New("S3 mode is not available in this build")
+	}
+	return o.NewS3(ctx, cfg)
+}
+
 // loadWith is load for a config the caller has already loaded.
 func (o *Options) loadWith(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (*env, error) {
 	version, err := easyrsa.New(&cfg.EasyRSA, o.Verbose).CheckVersion()
@@ -101,7 +138,7 @@ func (o *Options) loadWith(ctx context.Context, cfg *config.Config, mode store.M
 
 // newEnv opens the workspace and everything that works in it, without a
 // provider: list and link need none.
-func (o *Options) newEnv(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (*env, error) {
+func (o *Options) newEnv(ctx context.Context, cfg *config.Config, mode store.Mode, command string) (_ *env, err error) {
 	ws, client, err := o.openWorkspace(ctx, cfg, mode, command)
 	if err != nil {
 		return nil, err
@@ -113,18 +150,20 @@ func (o *Options) newEnv(ctx context.Context, cfg *config.Config, mode store.Mod
 		pki:  easyrsa.New(&config.EasyRSAConfig{Path: cfg.EasyRSA.Path, PKIDir: ws.PKIDir()}, o.Verbose),
 		ovpn: ovpn.New(&config.OVPNConfig{Template: ws.TemplatePath(), OutputDir: ws.OutDir()}),
 	}
+	defer func() { // the workspace may hold the lock: never leave it open
+		if err != nil {
+			e.close()
+		}
+	}()
 	if e.users, err = state.Load(ws.StateDir()); err != nil {
-		e.close()
 		return nil, err
 	}
 	if cfg.S3Mode() {
 		if o.NewPresigner == nil {
-			e.close()
 			return nil, errors.New("S3 mode is not available in this build")
 		}
 		p, err := o.NewPresigner(ctx, cfg)
 		if err != nil {
-			e.close()
 			return nil, err
 		}
 		e.deliver = delivery.New(client, p, *cfg.Store)
@@ -139,10 +178,7 @@ func (o *Options) openWorkspace(ctx context.Context, cfg *config.Config, mode st
 		ws, err := store.Open(ctx, cfg, mode, store.Deps{})
 		return ws, nil, err
 	}
-	if o.NewS3 == nil {
-		return nil, nil, errors.New("S3 mode is not available in this build")
-	}
-	client, caller, err := o.NewS3(ctx, cfg)
+	client, caller, err := o.s3(ctx, cfg)
 	if err != nil {
 		return nil, nil, err
 	}

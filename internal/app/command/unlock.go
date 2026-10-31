@@ -34,17 +34,11 @@ ACM or pushing a CRL, can still complete, so run cvpnctl status afterwards.`,
 }
 
 func runUnlock(ctx context.Context, opts *Options, yes bool) error {
-	cfg, err := opts.loadConfig()
+	cfg, err := opts.loadS3Config("unlock", "")
 	if err != nil {
 		return err
 	}
-	if !cfg.S3Mode() {
-		return errors.New("unlock requires `store` in the config")
-	}
-	if opts.NewS3 == nil {
-		return errors.New("S3 mode is not available in this build")
-	}
-	client, _, err := opts.NewS3(ctx, cfg)
+	client, _, err := opts.s3(ctx, cfg)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,6 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/aartinian/cvpnctl/internal/store"
@@ -40,12 +39,9 @@ func runLink(ctx context.Context, opts *Options, user string, hoursFlag int) err
 	if err := validateUser(user); err != nil {
 		return err
 	}
-	cfg, err := opts.loadConfig()
+	cfg, err := opts.loadS3Config("link", "")
 	if err != nil {
 		return err
-	}
-	if !cfg.S3Mode() {
-		return errors.New("link requires `store` in the config")
 	}
 	hours, err := linkHours(cfg, hoursFlag)
 	if err != nil {

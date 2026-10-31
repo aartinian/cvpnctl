@@ -64,7 +64,7 @@ func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error 
 	if err := e.pushCRL(ctx); err != nil {
 		return err
 	}
-	if e.deliver != nil {
+	if e.ws.Remote() {
 		if err := step("removing the link", "link removed", func() (string, error) {
 			return "", e.deliver.Remove(ctx, user)
 		}); err != nil {
@@ -86,19 +86,16 @@ func runRevoke(ctx context.Context, opts *Options, user string, yes bool) error 
 	}
 	e.saved()
 
-	if e.ws.Remote() { // S3 mode keeps no per-user files on disk
-		ui.Done("%s can no longer connect; an open session ends within about a minute.", user)
-		return nil
-	}
-	if err := step("removing the files", "files removed", func() (string, error) {
-		if err := easyrsa.RemoveUserDir(e.cfg.Certs.OutputDir, user); err != nil {
-			return "", err
+	if !e.ws.Remote() { // S3 mode keeps no per-user files on disk
+		if err := step("removing the files", "files removed", func() (string, error) {
+			if err := easyrsa.RemoveUserDir(e.cfg.Certs.OutputDir, user); err != nil {
+				return "", err
+			}
+			return ui.Path(easyrsa.UserDir(e.cfg.Certs.OutputDir, user)) + "/, " + ui.Path(e.ovpn.Path(user)), e.ovpn.Remove(user)
+		}); err != nil {
+			return err
 		}
-		return ui.Path(easyrsa.UserDir(e.cfg.Certs.OutputDir, user)) + "/, " + ui.Path(e.ovpn.Path(user)), e.ovpn.Remove(user)
-	}); err != nil {
-		return err
 	}
-
 	ui.Done("%s can no longer connect; an open session ends within about a minute.", user)
 	return nil
 }

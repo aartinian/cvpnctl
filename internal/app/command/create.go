@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aartinian/cvpnctl/internal/store"
 	"github.com/aartinian/cvpnctl/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -33,15 +32,7 @@ func runCreate(ctx context.Context, opts *Options, user string, hoursFlag int) e
 	if err := validateUser(user); err != nil {
 		return err
 	}
-	cfg, err := opts.loadConfig()
-	if err != nil {
-		return err
-	}
-	hours, err := linkHours(cfg, hoursFlag) // before the lock is taken
-	if err != nil {
-		return err
-	}
-	e, err := opts.loadWith(ctx, cfg, store.Write, "create "+user)
+	e, hours, err := opts.loadIssuing(ctx, "create "+user, hoursFlag)
 	if err != nil {
 		return err
 	}
