@@ -5,6 +5,7 @@ builds:
     main: ./cmd/cvpnctl
     binary: cvpnctl
     env:
+      # Disable CGO for cross-compilation
       - CGO_ENABLED=0
     # easyrsa is a POSIX shell script, so Windows is not supported.
     goos: [linux, darwin]
@@ -29,3 +30,10 @@ changelog:
       - "^test:"
       - "^chore:"
       - "^ci:"
+
+# Extra files to include in the release artifacts
+release:
+  extra_files:
+    - glob: ./scripts/install.sh
+    - glob: ./cvpnctl.yaml.example
+    - glob: ./base.ovpn.example
