@@ -4,6 +4,7 @@
 
 <p align="center">
 <a href="https://github.com/aartinian/cvpnctl/actions/workflows/ci.yaml"><img src="https://github.com/aartinian/cvpnctl/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
+<a href="https://github.com/aartinian/cvpnctl/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/aartinian/cvpnctl/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL"></a>
 <a href="https://github.com/aartinian/cvpnctl/releases"><img src="https://img.shields.io/github/v/release/aartinian/cvpnctl" alt="Release"></a>
 <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/aartinian/cvpnctl" alt="Go"></a>
 <a href="LICENSE"><img src="https://img.shields.io/github/license/aartinian/cvpnctl" alt="License"></a>
@@ -222,6 +223,10 @@ You can also give it a passphrase. EasyRSA then asks for it on every `create`, `
 ```
 easyrsa set-pass ca
 ```
+
+## Security
+
+Found a security problem? Please report it privately rather than in an issue; [SECURITY.md](SECURITY.md) says how, and what cvpnctl can and can't protect.
 
 ## Development
 
