@@ -32,11 +32,17 @@ cvpnctl does each of those in one command, with [EasyRSA](https://github.com/Ope
 You need:
 
 - Linux or macOS
-- [EasyRSA](https://github.com/OpenVPN/easy-rsa/releases) 3.2.7 or later (a release or Homebrew; most distro packages are too old)
+- [EasyRSA](https://github.com/OpenVPN/easy-rsa/releases) 3.2.7 or later: a release, or Homebrew's, which `brew install` below brings along (most distro packages are too old)
 - an EasyRSA PKI whose CA your Client VPN endpoint trusts, with certificate authentication on the endpoint
 - AWS credentials for ACM and the endpoint's CRL: see [docs/iam.md](docs/iam.md)
 
-**1. Install** (checks the download's SHA-256; asks for sudo to write to `/usr/local/bin`):
+**1. Install.** On macOS with Homebrew, which also installs EasyRSA and keeps both up to date with `brew upgrade`:
+
+```
+brew install aartinian/tap/cvpnctl
+```
+
+On Linux, or without Homebrew, the install script (checks the download's SHA-256; asks for sudo to write to `/usr/local/bin`):
 
 ```
 curl -fsSL https://github.com/aartinian/cvpnctl/releases/latest/download/install.sh | bash
@@ -89,6 +95,8 @@ ovpn:
   template: ~/.config/cvpnctl/base.ovpn
   output_dir: ~/vpn/clients     # where <user>.ovpn files are written
 ```
+
+If you installed with Homebrew, EasyRSA is in Homebrew's `bin` directory: set `easyrsa.path` to the output of `echo "$(brew --prefix)/bin"` (`/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel Macs).
 
 **3. Make the `.ovpn` template** from the client configuration AWS generates for your endpoint ([result](base.ovpn.example)):
 
