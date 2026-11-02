@@ -37,3 +37,27 @@ release:
     - glob: ./scripts/install.sh
     - glob: ./cvpnctl.yaml.example
     - glob: ./base.ovpn.example
+
+# brew install aartinian/tap/cvpnctl (macOS only)
+homebrew_casks:
+  - name: cvpnctl
+    binaries: [cvpnctl]
+    homepage: https://github.com/aartinian/cvpnctl
+    description: Manage AWS Client VPN user certificates with EasyRSA
+    repository:
+      owner: aartinian
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    dependencies:
+      - formula: easy-rsa
+    hooks:
+      post:
+        # Remove the quarantine attribute so macOS allows execution
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/cvpnctl"]
+          end
+    caveats: |
+      EasyRSA came with it: set easyrsa.path in cvpnctl.yaml to the output of
+        echo "$(brew --prefix)/bin"
+      Getting started: https://github.com/aartinian/cvpnctl#quick-start
